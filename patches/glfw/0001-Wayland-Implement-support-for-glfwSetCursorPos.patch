@@ -1,0 +1,208 @@
+From bb00531d61057374af4b019cb3a6a95fc8c2d112 Mon Sep 17 00:00:00 2001
+From: IMS212 <ims@irisshaders.dev>
+Date: Thu, 18 Sep 2025 16:11:28 -0700
+Subject: [PATCH 1/4] Wayland: Implement support for `glfwSetCursorPos`
+
+---
+ deps/wayland/pointer-warp-v1.xml | 72 ++++++++++++++++++++++++++++++++
+ docs/compat.md                   |  6 +++
+ src/CMakeLists.txt               |  1 +
+ src/wl_init.c                    | 12 ++++++
+ src/wl_platform.h                |  2 +
+ src/wl_window.c                  | 11 ++++-
+ 6 files changed, 102 insertions(+), 2 deletions(-)
+ create mode 100644 deps/wayland/pointer-warp-v1.xml
+
+diff --git a/deps/wayland/pointer-warp-v1.xml b/deps/wayland/pointer-warp-v1.xml
+new file mode 100644
+index 0000000..158dad8
+--- /dev/null
++++ b/deps/wayland/pointer-warp-v1.xml
+@@ -0,0 +1,72 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<protocol name="pointer_warp_v1">
++  <copyright>
++    Copyright © 2024 Neal Gompa
++    Copyright © 2024 Xaver Hugl
++    Copyright © 2024 Matthias Klumpp
++    Copyright © 2024 Vlad Zahorodnii
++
++    Permission is hereby granted, free of charge, to any person obtaining a
++    copy of this software and associated documentation files (the "Software"),
++    to deal in the Software without restriction, including without limitation
++    the rights to use, copy, modify, merge, publish, distribute, sublicense,
++    and/or sell copies of the Software, and to permit persons to whom the
++    Software is furnished to do so, subject to the following conditions:
++    The above copyright notice and this permission notice (including the next
++    paragraph) shall be included in all copies or substantial portions of the
++    Software.
++    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
++    THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++    DEALINGS IN THE SOFTWARE.
++  </copyright>
++
++  <interface name="wp_pointer_warp_v1" version="1">
++    <description summary="reposition the pointer to a location on a surface">
++      This global interface allows applications to request the pointer to be
++      moved to a position relative to a wl_surface.
++
++      Note that if the desired behavior is to constrain the pointer to an area
++      or lock it to a position, this protocol does not provide a reliable way
++      to do that. The pointer constraint and pointer lock protocols should be
++      used for those use cases instead.
++
++      Warning! The protocol described in this file is currently in the testing
++      phase. Backward compatible changes may be added together with the
++      corresponding interface version bump. Backward incompatible changes can
++      only be done by creating a new major version of the extension.
++    </description>
++
++    <request name="destroy" type="destructor">
++      <description summary="destroy the warp manager">
++        Destroy the pointer warp manager.
++      </description>
++    </request>
++
++    <request name="warp_pointer">
++      <description summary="reposition the pointer">
++        Request the compositor to move the pointer to a surface-local position.
++        Whether or not the compositor honors the request is implementation defined,
++        but it should
++        - honor it if the surface has pointer focus, including
++          when it has an implicit pointer grab
++        - reject it if the enter serial is incorrect
++        - reject it if the requested position is outside of the surface
++
++        Note that the enter serial is valid for any surface of the client,
++        and does not have to be from the surface the pointer is warped to.
++
++      </description>
++      <arg name="surface" type="object" interface="wl_surface"
++           summary="surface to position the pointer on"/>
++      <arg name="pointer" type="object" interface="wl_pointer"
++           summary="the pointer that should be repositioned"/>
++      <arg name="x" type="fixed"/>
++      <arg name="y" type="fixed"/>
++      <arg name="serial" type="uint" summary="serial number of the enter event"/>
++    </request>
++  </interface>
++</protocol>
+diff --git a/docs/compat.md b/docs/compat.md
+index a97192b..c974da4 100644
+--- a/docs/compat.md
++++ b/docs/compat.md
+@@ -159,6 +159,12 @@ less than the actual scale.
+ 
+ [fractional-scale-v1]: https://wayland.app/protocols/fractional-scale-v1
+ 
++GLFW uses the [pointer-warp-v1][] protocol to implement setting the cursor position.
++If the running compositor does not support this protocol, `glfwSetCursorPos` while the cursor is in any mode
++other than `GLFW_CURSOR_DISABLED` will return @ref GLFW_FEATURE_UNAVAILABLE.
++
++[pointer-warp-v1]: https://wayland.app/protocols/pointer-warp-v1
++
+ 
+ ## GLX extensions {#compat_glx}
+ 
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 2cbe8a7..2b4dff0 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -100,6 +100,7 @@ if (GLFW_BUILD_WAYLAND)
+     generate_wayland_protocol("viewporter.xml")
+     generate_wayland_protocol("xdg-shell.xml")
+     generate_wayland_protocol("idle-inhibit-unstable-v1.xml")
++    generate_wayland_protocol("pointer-warp-v1.xml")
+     generate_wayland_protocol("pointer-constraints-unstable-v1.xml")
+     generate_wayland_protocol("relative-pointer-unstable-v1.xml")
+     generate_wayland_protocol("fractional-scale-v1.xml")
+diff --git a/src/wl_init.c b/src/wl_init.c
+index d32c4ad..118ceef 100644
+--- a/src/wl_init.c
++++ b/src/wl_init.c
+@@ -49,6 +49,7 @@
+ #include "fractional-scale-v1-client-protocol.h"
+ #include "xdg-activation-v1-client-protocol.h"
+ #include "idle-inhibit-unstable-v1-client-protocol.h"
++#include "pointer-warp-v1-client-protocol.h"
+ 
+ // NOTE: Versions of wayland-scanner prior to 1.17.91 named every global array of
+ //       wl_interface pointers 'types', making it impossible to combine several unmodified
+@@ -91,6 +92,10 @@
+ #include "idle-inhibit-unstable-v1-client-protocol-code.h"
+ #undef types
+ 
++#define types _glfw_pointer_warp_types
++#include "pointer-warp-v1-client-protocol-code.h"
++#undef types
++
+ static void wmBaseHandlePing(void* userData,
+                              struct xdg_wm_base* wmBase,
+                              uint32_t serial)
+@@ -208,6 +213,13 @@ static void registryHandleGlobal(void* userData,
+                              &wp_fractional_scale_manager_v1_interface,
+                              1);
+     }
++    else if (strcmp(interface, "wp_pointer_warp_v1") == 0)
++    {
++        _glfw.wl.pointerWarp =
++            wl_registry_bind(registry, name,
++                             &wp_pointer_warp_v1_interface,
++                             1);
++    }
+ }
+ 
+ static void registryHandleGlobalRemove(void* userData,
+diff --git a/src/wl_platform.h b/src/wl_platform.h
+index bdadb65..e091785 100644
+--- a/src/wl_platform.h
++++ b/src/wl_platform.h
+@@ -130,6 +130,7 @@ struct wl_output;
+ #define xdg_activation_token_v1_interface _glfw_xdg_activation_token_v1_interface
+ #define wl_surface_interface _glfw_wl_surface_interface
+ #define wp_fractional_scale_v1_interface _glfw_wp_fractional_scale_v1_interface
++#define wp_pointer_warp_v1_interface _glfw_pointer_warp_v1_interface
+ 
+ #define GLFW_WAYLAND_WINDOW_STATE         _GLFWwindowWayland  wl;
+ #define GLFW_WAYLAND_LIBRARY_WINDOW_STATE _GLFWlibraryWayland wl;
+@@ -444,6 +445,7 @@ typedef struct _GLFWlibraryWayland
+     struct zwp_idle_inhibit_manager_v1*     idleInhibitManager;
+     struct xdg_activation_v1*               activationManager;
+     struct wp_fractional_scale_manager_v1*  fractionalScaleManager;
++    struct wp_pointer_warp_v1*  pointerWarp;
+ 
+     _GLFWofferWayland*          offers;
+     unsigned int                offerCount;
+diff --git a/src/wl_window.c b/src/wl_window.c
+index ad39b2e..146da73 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -51,6 +51,7 @@
+ #include "xdg-activation-v1-client-protocol.h"
+ #include "idle-inhibit-unstable-v1-client-protocol.h"
+ #include "fractional-scale-v1-client-protocol.h"
++#include "pointer-warp-v1-client-protocol.h"
+ 
+ #define GLFW_BORDER_SIZE    4
+ #define GLFW_CAPTION_HEIGHT 24
+@@ -2724,8 +2725,14 @@ void _glfwGetCursorPosWayland(_GLFWwindow* window, double* xpos, double* ypos)
+ 
+ void _glfwSetCursorPosWayland(_GLFWwindow* window, double x, double y)
+ {
+-    _glfwInputError(GLFW_FEATURE_UNAVAILABLE,
+-                    "Wayland: The platform does not support setting the cursor position");
++    if (!_glfw.wl.pointerWarp)
++    {
++        _glfwInputError(GLFW_FEATURE_UNAVAILABLE,
++                    "Wayland: The compositor does not support setting the cursor position");
++        return;
++    }
++
++    wp_pointer_warp_v1_warp_pointer(_glfw.wl.pointerWarp, window->wl.surface, _glfw.wl.pointer, wl_fixed_from_double(x), wl_fixed_from_double(y), _glfw.wl.pointerEnterSerial);
+ }
+ 
+ void _glfwSetCursorModeWayland(_GLFWwindow* window, int mode)

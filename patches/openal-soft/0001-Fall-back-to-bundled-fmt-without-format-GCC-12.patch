@@ -1,0 +1,23 @@
+From 12171c5793d5fe9c156b8a4a22e667880fee5697 Mon Sep 17 00:00:00 2001
+From: Coredex <samdhi2323@gmail.com>
+Date: Sun, 1 Nov 2026 21:25:30 +0530
+Subject: [PATCH 1/2] Fall back to bundled fmt without <format> (GCC 12)
+
+---
+ common/alformat.hpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/common/alformat.hpp b/common/alformat.hpp
+index 6143182..0253e81 100644
+--- a/common/alformat.hpp
++++ b/common/alformat.hpp
+@@ -8,7 +8,8 @@
+ /* On macOS, std::format requires std::to_chars, which isn't available prior
+  * to macOS 13.3.
+  */
+-#if defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED < 130300
++/* Also use the bundled fmt where the C++ library has no <format> (GCC < 13). */
++#if (defined(MAC_OS_X_VERSION_MIN_REQUIRED) && MAC_OS_X_VERSION_MIN_REQUIRED < 130300) || !__has_include(<format>)
+ #include "fmt/format.h"
+ 
+ namespace al {

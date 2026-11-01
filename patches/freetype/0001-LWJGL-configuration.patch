@@ -1,0 +1,673 @@
+From a4e7f664973c4e7cae5a4a1b1673616602bf6d5c Mon Sep 17 00:00:00 2001
+From: Ioannis Tsakpinis <iotsakp@gmail.com>
+Date: Sat, 5 Nov 2022 14:05:40 +0200
+Subject: [PATCH] LWJGL configuration
+
+---
+ .github/workflows/lwjgl.yml | 277 ++++++++++++++++++++++++++++++++++++
+ lwjgl_linux_arm32.cross     |  12 ++
+ lwjgl_linux_arm64.cross     |  12 ++
+ lwjgl_linux_ppc64le.cross   |  12 ++
+ lwjgl_linux_riscv64.cross   |  12 ++
+ lwjgl_macos_arm64.cross     |  21 +++
+ lwjgl_macos_x64.cross       |  21 +++
+ lwjgl_windows_arm64.cross   |  12 ++
+ meson.build                 |  35 +++--
+ meson_options.txt           |   5 +
+ src/autofit/ft-hb.c         |  37 ++++-
+ src/autofit/ft-hb.h         |   8 ++
+ subprojects/harfbuzz.wrap   |  11 +-
+ 13 files changed, 454 insertions(+), 21 deletions(-)
+ create mode 100644 .github/workflows/lwjgl.yml
+ create mode 100644 lwjgl_linux_arm32.cross
+ create mode 100644 lwjgl_linux_arm64.cross
+ create mode 100644 lwjgl_linux_ppc64le.cross
+ create mode 100644 lwjgl_linux_riscv64.cross
+ create mode 100644 lwjgl_macos_arm64.cross
+ create mode 100644 lwjgl_macos_x64.cross
+ create mode 100644 lwjgl_windows_arm64.cross
+
+diff --git a/.github/workflows/lwjgl.yml b/.github/workflows/lwjgl.yml
+new file mode 100644
+index 0000000..a632d2d
+--- /dev/null
++++ b/.github/workflows/lwjgl.yml
+@@ -0,0 +1,277 @@
++# IMPORTANT: after HEAD is updated, the "LWJGL" tag must be recreated!
++name: LWJGL Build
++
++on:
++  workflow_dispatch:
++  push:
++    branches:
++      - master
++
++env:
++  AWS_DEFAULT_REGION: us-east-1
++  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
++  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
++  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
++  FREETYPE_PARAMS: --wrap-mode=default --force-fallback-for=harfbuzz,libpng,zlib -Dbrotli=disabled -Dbzip2=disabled -Dharfbuzz=enabled -Dpng=enabled -Dzlib=system -Dtests=disabled -Dbuildtype=release -Dfreetype2:zlib=disabled -Dfreetype2:png=disabled -Dharfbuzz:experimental_api=true -Dharfbuzz:subset=disabled -Dharfbuzz:raster=disabled -Dharfbuzz:vector=disabled -Db_lto=true -Db_ndebug=true -Derror_strings=true
++
++jobs:
++  linux:
++    name: Linux
++    runs-on: ubuntu-latest
++    container:
++      image: almalinux:8
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [ x64 ]
++        include:
++          - ARCH: x64
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - name: Install git
++        run: dnf -y install git
++      - name: Clone repository
++        run: git clone --depth 3 https://github.com/${{ github.repository }}.git .
++      - name: Install build dependencies
++        run: |
++          dnf -y install epel-release wget
++          dnf config-manager --set-enabled powertools
++          dnf -y update
++          dnf -y install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ awscli
++      - name: Install FreeType dependencies
++        run: |
++          dnf -y install python3-pip ninja-build
++          pip3 install meson
++      - name: Configure build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          meson setup build $FREETYPE_PARAMS
++      - name: Build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          meson compile --verbose -C build
++          strip build/libfreetype.so
++      - name: Upload artifact
++        run: aws s3 cp build/libfreetype.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libfreetype.so.git
++          aws s3 cp libfreetype.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  linux-cross:
++    name: Linux Cross
++    runs-on: ${{matrix.RUNNER}}
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [arm32, arm64, ppc64le, riscv64]
++        include:
++          - ARCH: arm32
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: armhf
++            TRIPLET: arm-linux-gnueabihf
++            GCC: 12
++          - ARCH: arm64
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: arm64
++            TRIPLET: aarch64-linux-gnu
++            GCC: 12
++          - ARCH: ppc64le
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: ppc64el
++            TRIPLET: powerpc64le-linux-gnu
++            GCC: 12
++          - ARCH: riscv64
++            RUNNER: ubuntu-24.04
++            CROSS_ARCH: riscv64
++            TRIPLET: riscv64-linux-gnu
++            GCC: 14
++    env:
++      LWJGL_ARCH: ${{matrix.ARCH}}
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Install dependencies
++        run: |
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq update
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install \
++            gcc-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            g++-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            libc6-dev-${{matrix.CROSS_ARCH}}-cross
++      - name: Install FreeType dependencies
++        run: |
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install python3-pip ninja-build
++          pip3 install meson
++      - name: Configure build
++        run: |
++          export PKG_CONFIG_LIBDIR="/usr/lib/${{matrix.TRIPLET}}/pkgconfig:/usr/share/pkgconfig"
++          meson setup build $FREETYPE_PARAMS --cross-file lwjgl_linux_${{matrix.ARCH}}.cross
++      - name: Build
++        run: |
++          meson compile --verbose -C build
++          ${{matrix.TRIPLET}}-strip build/libfreetype.so
++      - name: Upload artifact
++        run: aws s3 cp build/libfreetype.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $(pwd)
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libfreetype.so.git
++          aws s3 cp libfreetype.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  freebsd-cross:
++    name: FreeBSD Cross
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Start VM
++        uses: cross-platform-actions/action@v1.3.0
++        with:
++          operating_system: freebsd
++          architecture: x86-64
++          version: '14.4'
++          memory: 4G
++          environment_variables: FREETYPE_PARAMS
++      - name: Install build dependencies
++        shell: cpa.sh {0}
++        run: |
++          sudo pkg install -y git python3 ninja
++          python3 -m ensurepip --upgrade
++          export PATH=$PATH:/home/runner/.local/bin
++          pip3 install meson
++      - name: Install dependencies
++        shell: cpa.sh {0}
++        run: sudo pkg install -y png
++      - name: Configure build
++        shell: cpa.sh {0}
++        run: |
++          export PATH=$PATH:/home/runner/.local/bin
++          meson setup build $FREETYPE_PARAMS
++      - name: Build
++        shell: cpa.sh {0}
++        run: |
++          export PATH=$PATH:/home/runner/.local/bin
++          meson compile --verbose -C build
++          strip build/libfreetype.so
++      - name: Upload artifact # Symlinks are not copied out of the VM. These SOs are versioned.
++        #run: aws s3 cp `find -E . -maxdepth 2 -regex './build/libfreetype.so(\.[0-9]+)*'` s3://lwjgl-build/nightly/freebsd/x64/libfreetype.so ${{env.S3_PARAMS}}
++        run: aws s3 cp build/libfreetype.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libfreetype.so.git
++          aws s3 cp libfreetype.so.git s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++
++  macos:
++    name: macOS
++    runs-on: macos-latest
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x64, arm64]
++        include:
++          - ARCH: x64
++            MACOS: 10.11
++            MESON_PARAMS: --cross-file lwjgl_macos_x64.cross
++          - ARCH: arm64
++            MACOS: 11.0
++            MESON_PARAMS: --cross-file lwjgl_macos_arm64.cross
++            env:
++              MACOSX_DEPLOYMENT_TARGET: 11.0
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Install dependencies
++        run: brew install pkg-config meson
++      - name: Configure build
++        run: MACOSX_DEPLOYMENT_TARGET=${{matrix.MACOS}} meson setup build $FREETYPE_PARAMS -Dharfbuzz:coretext=enabled ${{matrix.MESON_PARAMS}}
++      - name: Build
++        run: |
++          MACOSX_DEPLOYMENT_TARGET=${{matrix.MACOS}} meson compile --verbose -C build
++          strip -u -r build/libfreetype.dylib
++      - name: Upload artifact
++        run: aws s3 cp build/libfreetype.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libfreetype.dylib.git
++          aws s3 cp libfreetype.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  windows:
++    name: Windows
++    runs-on: windows-2022
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x86, x64, arm64]
++        include:
++          - ARCH: x86
++            MSVC_ARCH: amd64_x86
++            #MSVC_ARCH: x86
++            PLATFORM: Win32
++            MESON_PARAMS:
++            #VCTOOLS: x86.x64
++          - ARCH: x64
++            MSVC_ARCH: amd64
++            PLATFORM: x64
++            MESON_PARAMS:
++            #VCTOOLS: x86.x64
++          - ARCH: arm64
++            MSVC_ARCH: amd64_arm64
++            #MSVC_ARCH: arm64
++            PLATFORM: ARM64
++            MESON_PARAMS: --cross-file lwjgl_windows_arm64.cross
++            #VCTOOLS: ARM64
++    defaults:
++      run:
++        shell: cmd
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - uses: ilammy/msvc-dev-cmd@v1
++        with:
++          arch: ${{matrix.MSVC_ARCH}}
++#      - name: Install Visual Studio 2026 Build Tools
++#        shell: pwsh
++#        run: |
++#          choco install visualstudio2026buildtools --package-parameters "`
++#            --add Microsoft.VisualStudio.Workload.VCTools `
++#            --add Microsoft.VisualStudio.Component.VC.Tools.${{matrix.VCTOOLS}} `
++#            --includeRecommended `
++#            --quiet" `
++#            -y `
++#            --ignore-package-exit-codes=3010
++      - uses: actions/setup-python@v6
++        with:
++          python-version: '3.14'
++      # Strawberry Perl is installed by default on the Windows runner, adding a bunch of horrible stuff to PATH.
++      # Including a freetype build... which Meson picks up. Just nuke it here and everything will be fine.
++      # See https://github.com/actions/runner-images/issues/5459 for details. We haven't encountered this before
++      # because Meson uses .a for static MSVC libraries, instead of the usual .lib suffix.
++      - name: Install dependencies
++        run: |
++          pip3 install meson
++          rmdir C:\Strawberry /s /q
++      - name: Configure build
++        #call C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\VsDevCmd.bat -host_arch=amd64 -arch=${{matrix.MSVC_ARCH}}
++        run: meson setup build %FREETYPE_PARAMS% -Db_vscrt=mt -Dharfbuzz:gdi=enabled -Dharfbuzz:directwrite=enabled ${{matrix.MESON_PARAMS}}
++      - name: Build
++        #call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\VsDevCmd.bat" -host_arch=amd64 -arch=${{matrix.MSVC_ARCH}}
++        run: meson compile --verbose -C build
++      - name: Upload artifact
++        run: aws s3 cp build\freetype-6.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/freetype.dll ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%%H HEAD~2..HEAD~1 > freetype.dll.git
++          aws s3 cp freetype.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+diff --git a/lwjgl_linux_arm32.cross b/lwjgl_linux_arm32.cross
+new file mode 100644
+index 0000000..c9e39c2
+--- /dev/null
++++ b/lwjgl_linux_arm32.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'arm'
++cpu = 'armhf'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/arm-linux-gnueabihf-gcc-12'
++cpp = '/usr/bin/arm-linux-gnueabihf-g++-12'
++ar = '/usr/bin/arm-linux-gnueabihf-gcc-ar-12'
++strip = '/usr/bin/arm-linux-gnueabihf-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_arm64.cross b/lwjgl_linux_arm64.cross
+new file mode 100644
+index 0000000..0d34e5d
+--- /dev/null
++++ b/lwjgl_linux_arm64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'aarch64'
++cpu = 'arm64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/aarch64-linux-gnu-gcc-12'
++cpp = '/usr/bin/aarch64-linux-gnu-g++-12'
++ar = '/usr/bin/aarch64-linux-gnu-gcc-ar-12'
++strip = '/usr/bin/aarch64-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_ppc64le.cross b/lwjgl_linux_ppc64le.cross
+new file mode 100644
+index 0000000..11d1ed6
+--- /dev/null
++++ b/lwjgl_linux_ppc64le.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'ppc64'
++cpu = 'ppc64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/powerpc64le-linux-gnu-gcc-12'
++cpp = '/usr/bin/powerpc64le-linux-gnu-g++-12'
++ar = '/usr/bin/powerpc64le-linux-gnu-gcc-ar-12'
++strip = '/usr/bin/powerpc64le-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_riscv64.cross b/lwjgl_linux_riscv64.cross
+new file mode 100644
+index 0000000..196fb43
+--- /dev/null
++++ b/lwjgl_linux_riscv64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'riscv64'
++cpu = 'riscv64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/riscv64-linux-gnu-gcc-14'
++cpp = '/usr/bin/riscv64-linux-gnu-g++-14'
++ar = '/usr/bin/riscv64-linux-gnu-gcc-ar-14'
++strip = '/usr/bin/riscv64-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_macos_arm64.cross b/lwjgl_macos_arm64.cross
+new file mode 100644
+index 0000000..9910546
+--- /dev/null
++++ b/lwjgl_macos_arm64.cross
+@@ -0,0 +1,21 @@
++[host_machine]
++system = 'darwin'
++cpu_family = 'aarch64'
++cpu = 'arm64'
++endian = 'little'
++
++[binaries]
++c = ['clang']
++cpp = ['clang++']
++objc = ['clang']
++objcpp = ['clang++']
++
++[built-in options]
++c_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++cpp_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objc_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objcpp_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++c_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++cpp_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objc_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objcpp_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
+\ No newline at end of file
+diff --git a/lwjgl_macos_x64.cross b/lwjgl_macos_x64.cross
+new file mode 100644
+index 0000000..4ff6a1a
+--- /dev/null
++++ b/lwjgl_macos_x64.cross
+@@ -0,0 +1,21 @@
++[host_machine]
++system = 'darwin'
++cpu_family = 'x86_64'
++cpu = 'x64'
++endian = 'little'
++
++[binaries]
++c = ['clang']
++cpp = ['clang++']
++objc = ['clang']
++objcpp = ['clang++']
++
++[built-in options]
++c_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++cpp_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objc_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objcpp_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++c_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++cpp_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objc_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objcpp_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
+\ No newline at end of file
+diff --git a/lwjgl_windows_arm64.cross b/lwjgl_windows_arm64.cross
+new file mode 100644
+index 0000000..e7e5939
+--- /dev/null
++++ b/lwjgl_windows_arm64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'windows'
++cpu_family = 'aarch64'
++cpu = 'armv8'
++endian = 'little'
++
++[binaries]
++c = 'cl'
++cpp = 'cl'
++fc = 'false'
++ar = 'lib'
++windres = 'rc'
+\ No newline at end of file
+diff --git a/meson.build b/meson.build
+index 09382fb..e0a8046 100644
+--- a/meson.build
++++ b/meson.build
+@@ -24,7 +24,7 @@
+ #
+ 
+ project('freetype2', 'c',
+-  meson_version: '>= 0.55.0',
++  meson_version: '>= 0.56.0',
+   version: run_command('builds/meson/extract_freetype_version.py',
+                        'include/freetype/freetype.h',
+                        check: true).stdout().strip(),
+@@ -308,7 +308,8 @@ elif zlib_option == 'external'
+   ft2_deps += [zlib_dep]
+ elif zlib_option == 'system'
+   zlib_dep = dependency('zlib',
+-    required: true)
++    required: true,
++    static: true)
+   assert(zlib_dep.found(), 'Could not find system zlib installation!')
+   ftoption_command += [
+     '--enable=FT_CONFIG_OPTION_USE_ZLIB',
+@@ -341,7 +342,8 @@ endif
+ # PNG support.
+ libpng_dep = dependency('libpng',
+   required: get_option('png'),
+-  fallback: 'libpng')
++  fallback: 'libpng',
++  static: true)
+ 
+ if libpng_dep.found()
+   ftoption_command += ['--enable=FT_CONFIG_OPTION_USE_PNG']
+@@ -353,10 +355,25 @@ harfbuzz_opt = get_option('harfbuzz')
+ harfbuzz_dep = disabler()
+ 
+ if harfbuzz_opt == 'enabled' or harfbuzz_opt == 'auto'
+-  harfbuzz_dep = dependency('harfbuzz',
+-    version: '>= 2.0.0',
+-    required: harfbuzz_opt == 'enabled',
+-    default_options: ['freetype=disabled'])
++  if meson.current_build_dir().contains('subprojects')
++    # LWJGL: Not used in this case, first freetype is built without harfbuzz
++    harfbuzz_dep = dependency('harfbuzz',
++      version: '>= 2.0.0',
++      required: harfbuzz_opt == 'enabled',
++      static: true,
++      default_options: ['freetype=disabled', 'tests=disabled', 'benchmark=disabled', 'docs=disabled'])
++  else
++    # LWJGL: This is a workaround to create an "internal" meson dependency, which is the only one
++    #        that supports as_link_whole. We need that to keep all HarfBuzz functions.
++    harfbuzz_options = ['default_library=static', 'freetype=enabled', 'tests=disabled', 'benchmark=disabled', 'docs=disabled']
++    if host_machine.system() == 'darwin'
++      harfbuzz_options += ['freetype2:libname=freetype-hb']
++    endif
++    harfbuzz_project = subproject('harfbuzz',
++        required: true,
++        default_options: harfbuzz_options)
++    harfbuzz_dep = harfbuzz_project.get_variable('libharfbuzz_dep').as_link_whole()
++  endif
+   if harfbuzz_dep.found()
+     harfbuzz_opt = 'YES'
+     ftoption_command += ['--enable=FT_CONFIG_OPTION_USE_HARFBUZZ']
+@@ -447,7 +464,7 @@ if use_unix_ftsystem_c
+ endif
+ 
+ 
+-ft2_lib = library('freetype',
++ft2_lib = library(get_option('libname'),
+   sources: ft2_sources + [ftmodule_h],
+   c_args: ft2_defines,
+   gnu_symbol_visibility: 'hidden',
+@@ -466,7 +483,7 @@ freetype_dep = declare_dependency(
+   link_with: ft2_lib,
+   version: ft2_pkgconfig_version)
+ 
+-meson.override_dependency('freetype2', freetype_dep)
++#meson.override_dependency('freetype2', freetype_dep)
+ 
+ 
+ # NOTE: Using both `install_dir` and `subdir` doesn't seem to work
+diff --git a/meson_options.txt b/meson_options.txt
+index c9e4835..9107f5c 100644
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -11,6 +11,11 @@
+ # indicate that you have read the license and understand and accept it
+ # fully.
+ 
++# LWJGL: Allow renaming the library basename (for harfbuzz subproject: avoids multiple libfreetype.6.dylib link conflict)
++option('libname',
++  type: 'string',
++  value: 'freetype',
++  description: 'Basename of the FreeType library artifact')
+ 
+ option('brotli',
+   type: 'feature',
+diff --git a/src/autofit/ft-hb.c b/src/autofit/ft-hb.c
+index 3c145d0..ab77031 100644
+--- a/src/autofit/ft-hb.c
++++ b/src/autofit/ft-hb.c
+@@ -15,6 +15,9 @@
+  *
+  */
+ 
++#if !defined(_GNU_SOURCE)
++  #define _GNU_SOURCE
++#endif
+ 
+ #if !defined( _WIN32 ) && !defined( _GNU_SOURCE )
+ #  define _GNU_SOURCE  1  /* for RTLD_DEFAULT */
+@@ -47,6 +50,9 @@
+ 
+ #  include <windows.h>
+ 
++// LWJGL HarfBuzz path override
++FT_EXPORT_DEF(LPCWSTR) _freetype_harfbuzz_library = NULL;
++
+ #else /* !_WIN32 */
+ 
+ #  include <dlfcn.h>
+@@ -62,6 +68,9 @@
+ #    endif
+ #  endif
+ 
++// LWJGL HarfBuzz path override
++FT_EXPORT_DEF(char const *) _freetype_harfbuzz_library = NULL;
++
+ #endif /* !_WIN32 */
+ 
+ 
+@@ -93,17 +102,35 @@
+ 
+ #ifdef _WIN32
+ 
+-    lib = LoadLibraryA( FT_LIBHARFBUZZ );
+-    if ( !lib )
+-      goto Fail;
++    if ( _freetype_harfbuzz_library )
++    {
++        lib = LoadLibraryW( _freetype_harfbuzz_library );
++        if ( !lib )
++        {
++            lib = LoadLibraryA( FT_LIBHARFBUZZ );
++            if ( !lib )
++              goto Fail;
++        }
++    }
+     version_atleast = DLSYM( lib, hb_version_atleast );
+ 
+ #else /* !_WIN32 */
+ 
++    if ( _freetype_harfbuzz_library )
++    {
++        lib = dlopen( _freetype_harfbuzz_library, RTLD_LAZY | RTLD_GLOBAL );
++        if ( lib ) {
++            version_atleast = DLSYM( lib, hb_version_atleast );
++        }
++    }
++
+ #  ifdef RTLD_DEFAULT
+ #    define FT_RTLD_FLAGS RTLD_LAZY | RTLD_GLOBAL
+-    lib             = RTLD_DEFAULT;
+-    version_atleast = DLSYM( lib, hb_version_atleast );
++    if ( !version_atleast )
++    {
++        lib             = RTLD_DEFAULT;
++        version_atleast = DLSYM( lib, hb_version_atleast );
++    }
+ #  else
+ #    define FT_RTLD_FLAGS RTLD_LAZY
+ #  endif
+diff --git a/src/autofit/ft-hb.h b/src/autofit/ft-hb.h
+index 95914de..f0329c6 100644
+--- a/src/autofit/ft-hb.h
++++ b/src/autofit/ft-hb.h
+@@ -31,6 +31,14 @@ FT_BEGIN_HEADER
+ 
+ #  ifdef FT_CONFIG_OPTION_USE_HARFBUZZ_DYNAMIC
+ 
++// LWJGL HarfBuzz path override
++#    ifdef _WIN32
++#      include <windows.h>
++FT_EXPORT(LPCWSTR) _freetype_harfbuzz_library;
++#    else /* !_WIN32 */
++FT_EXPORT(char const *) _freetype_harfbuzz_library;
++#    endif /* !_WIN32 */
++
+ #    define HB_EXTERN( ret, name, args ) \
+               typedef ret (*ft_ ## name ## _func_t) args;
+ #    include "ft-hb-decls.h"
+diff --git a/subprojects/harfbuzz.wrap b/subprojects/harfbuzz.wrap
+index 413c100..1526080 100644
+--- a/subprojects/harfbuzz.wrap
++++ b/subprojects/harfbuzz.wrap
+@@ -1,10 +1,7 @@
+-[wrap-file]
+-directory = harfbuzz-11.4.1
+-source_url = https://github.com/harfbuzz/harfbuzz/releases/download/11.4.1/harfbuzz-11.4.1.tar.xz
+-source_filename = harfbuzz-11.4.1.tar.xz
+-source_hash = 7aafab93115eb56cdc9a931ab7d19ff60d7f2937b599d140f17236f374e32698
+-source_fallback_url = https://github.com/mesonbuild/wrapdb/releases/download/harfbuzz_11.4.1-1/harfbuzz-11.4.1.tar.xz
+-wrapdb_version = 11.4.1-1
++[wrap-git]
++directory=harfbuzz
++url=https://github.com/LWJGL-CI/harfbuzz.git
++revision=HEAD
+ 
+ [provide]
+ dependency_names = harfbuzz, harfbuzz-cairo, harfbuzz-gobject, harfbuzz-icu, harfbuzz-subset

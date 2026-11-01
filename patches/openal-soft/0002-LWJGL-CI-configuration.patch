@@ -1,0 +1,854 @@
+From f7d1d8c5b4a09d8b2a7021d0dffb8549f9efed17 Mon Sep 17 00:00:00 2001
+From: Ioannis Tsakpinis <iotsakp@gmail.com>
+Date: Tue, 16 Mar 2021 00:08:24 +0200
+Subject: [PATCH 2/2] LWJGL CI configuration
+
+---
+ .gitattributes              |   1 +
+ .github/workflows/ci.yml    | 264 ----------------------------
+ .github/workflows/lwjgl.yml | 331 ++++++++++++++++++++++++++++++++++++
+ .github/workflows/utils.yml |  85 ---------
+ CMakeLists.txt              |  18 +-
+ XCompile-Linux.txt          |  28 +++
+ alc/backends/dsound.cpp     |   7 +-
+ alc/backends/pipewire.cpp   |   9 +-
+ alc/export_list.h           |   5 +
+ 9 files changed, 388 insertions(+), 360 deletions(-)
+ create mode 100644 .gitattributes
+ delete mode 100644 .github/workflows/ci.yml
+ create mode 100644 .github/workflows/lwjgl.yml
+ delete mode 100644 .github/workflows/utils.yml
+ create mode 100644 XCompile-Linux.txt
+
+diff --git a/.gitattributes b/.gitattributes
+new file mode 100644
+index 0000000..7745062
+--- /dev/null
++++ b/.gitattributes
+@@ -0,0 +1 @@
++*	-text
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+deleted file mode 100644
+index 91fd58d..0000000
+--- a/.github/workflows/ci.yml
++++ /dev/null
+@@ -1,264 +0,0 @@
+-name: CI
+-
+-on: [push, pull_request]
+-
+-jobs:
+-  build:
+-    name: ${{matrix.config.name}}
+-    runs-on: ${{matrix.config.os}}
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        config:
+-        - {
+-            name: "Win32-Release",
+-            os: windows-latest,
+-            cmake_opts: "-A Win32 \
+-              -DALSOFT_TESTS=ON \
+-              -DALSOFT_BUILD_ROUTER=ON \
+-              -DALSOFT_REQUIRE_WINMM=ON \
+-              -DALSOFT_REQUIRE_DSOUND=ON \
+-              -DALSOFT_REQUIRE_WASAPI=ON",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "Win32-Debug",
+-            os: windows-latest,
+-            cmake_opts: "-A Win32 \
+-              -DALSOFT_TESTS=ON \
+-              -DALSOFT_BUILD_ROUTER=ON \
+-              -DALSOFT_REQUIRE_WINMM=ON \
+-              -DALSOFT_REQUIRE_DSOUND=ON \
+-              -DALSOFT_REQUIRE_WASAPI=ON \
+-              -DFORCE_STATIC_VCRT=ON \
+-              -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug",
+-            build_type: "Debug"
+-          }
+-        - {
+-            name: "Win64-Release",
+-            os: windows-latest,
+-            cmake_opts: "-A x64 \
+-              -DALSOFT_TESTS=ON \
+-              -DALSOFT_BUILD_ROUTER=ON \
+-              -DALSOFT_REQUIRE_WINMM=ON \
+-              -DALSOFT_REQUIRE_DSOUND=ON \
+-              -DALSOFT_REQUIRE_WASAPI=ON",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "Win64-Debug",
+-            os: windows-latest,
+-            cmake_opts: "-A x64 \
+-              -DALSOFT_TESTS=ON \
+-              -DALSOFT_BUILD_ROUTER=ON \
+-              -DALSOFT_REQUIRE_WINMM=ON \
+-              -DALSOFT_REQUIRE_DSOUND=ON \
+-              -DALSOFT_REQUIRE_WASAPI=ON \
+-              -DFORCE_STATIC_VCRT=ON \
+-              -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDebug",
+-            build_type: "Debug"
+-          }
+-        - {
+-            name: "Win64-UWP",
+-            os: windows-latest,
+-            cmake_opts: "-A x64 \
+-              -DALSOFT_TESTS=OFF \
+-              -DCMAKE_SYSTEM_NAME=WindowsStore \
+-              \"-DCMAKE_SYSTEM_VERSION=10.0\" \
+-              -DALSOFT_BUILD_ROUTER=ON \
+-              -DALSOFT_REQUIRE_WASAPI=ON",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "macOS-Release",
+-            os: macos-15,
+-            cmake_opts: "-DALSOFT_REQUIRE_COREAUDIO=ON \
+-              -DALSOFT_TESTS=ON",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "macOS-10.9-Release",
+-            os: macos-15,
+-            cmake_opts: "-DCMAKE_OSX_DEPLOYMENT_TARGET=10.9 \
+-              -DALSOFT_REQUIRE_COREAUDIO=ON \
+-              -DALSOFT_TESTS=ON",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "iOS-Release",
+-            os: macos-15,
+-            cmake_opts: "-GXcode \
+-            -DCMAKE_SYSTEM_NAME=iOS \
+-            -DALSOFT_REQUIRE_COREAUDIO=ON \
+-            -DALSOFT_UTILS=OFF \
+-            -DALSOFT_EXAMPLES=OFF \
+-            -DALSOFT_TESTS=OFF \
+-            -DALSOFT_INSTALL=OFF \
+-            \"-DCMAKE_OSX_ARCHITECTURES=arm64\"",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "Linux-Release",
+-            os: ubuntu-latest,
+-            cmake_opts: "-DALSOFT_REQUIRE_RTKIT=ON \
+-              -DALSOFT_REQUIRE_ALSA=ON \
+-              -DALSOFT_REQUIRE_OSS=ON \
+-              -DALSOFT_REQUIRE_PORTAUDIO=ON \
+-              -DALSOFT_REQUIRE_PULSEAUDIO=ON \
+-              -DALSOFT_REQUIRE_JACK=ON \
+-              -DALSOFT_REQUIRE_PIPEWIRE=ON \
+-              -DALSOFT_TESTS=ON",
+-            deps_cmdline: "sudo apt update && sudo apt-get install -qq \
+-              libpulse-dev \
+-              portaudio19-dev \
+-              libasound2-dev \
+-              libjack-dev \
+-              libpipewire-0.3-dev \
+-              qt6-base-dev \
+-              libdbus-1-dev",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "Android_armeabi-v7a-Release",
+-            os: ubuntu-latest,
+-            cmake_opts: "-DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+-            -DALSOFT_EMBED_HRTF_DATA=TRUE \
+-            -DALSOFT_REQUIRE_OPENSL=ON \
+-            -DALSOFT_REQUIRE_OBOE=ON \
+-            -DOBOE_SOURCE=oboe",
+-            build_type: "Release"
+-          }
+-        - {
+-            name: "Android_arm64-v8a-Release",
+-            os: ubuntu-latest,
+-            cmake_opts: "-DANDROID_ABI=arm64-v8a \
+-            -DANDROID_PLATFORM=25 \
+-            -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+-            -DALSOFT_EMBED_HRTF_DATA=TRUE \
+-            -DALSOFT_REQUIRE_OPENSL=ON \
+-            -DALSOFT_REQUIRE_OBOE=ON \
+-            -DOBOE_SOURCE=oboe",
+-            build_type: "Release"
+-          }
+-    steps:
+-    - uses: actions/checkout@v4
+-      with:
+-        fetch-depth: '0'
+-
+-    - name: Setup Oboe for Android
+-      if: ${{ contains(matrix.config.name, 'Android') }}
+-      run: git clone https://github.com/google/oboe --depth=1 --branch 1.10.0
+-
+-    - name: Get current commit tag, short hash, count and date
+-      run: |
+-        echo "CommitTag=$(git describe --tags --abbrev=0 --match *.*.*)" >> $env:GITHUB_ENV
+-        echo "CommitHashShort=$(git rev-parse --short=8 HEAD)" >> $env:GITHUB_ENV
+-        echo "CommitCount=$(git rev-list --count $env:GITHUB_REF_NAME)" >> $env:GITHUB_ENV
+-        echo "CommitDate=$(git show -s --date=iso-local --format=%cd)" >> $env:GITHUB_ENV
+-
+-    - name: Install Dependencies
+-      shell: bash
+-      run: |
+-        if [[ ! -z "${{matrix.config.deps_cmdline}}" ]]; then
+-          eval ${{matrix.config.deps_cmdline}}
+-        fi
+-
+-    - name: Configure
+-      shell: bash
+-      run: |
+-        cmake -B build -DCMAKE_BUILD_TYPE=${{matrix.config.build_type}} ${{matrix.config.cmake_opts}} .
+-
+-    - name: Build
+-      shell: bash
+-      run: |
+-        cmake --build build --config ${{matrix.config.build_type}}
+-
+-    - name: Test
+-      shell: bash
+-      run: |
+-        cd build
+-        ctest
+-
+-    - name: Set up Windows artifacts
+-      if: ${{ contains(matrix.config.name, 'Win') }}
+-      shell: bash
+-      run: |
+-        cd build
+-        mkdir archive
+-        mkdir archive/router
+-        cp ${{matrix.config.build_type}}/soft_oal.dll archive
+-        cp ${{matrix.config.build_type}}/OpenAL32.dll archive/router
+-
+-    - name: Set up Android artifacts
+-      if: ${{ contains(matrix.config.name, 'Android') }}
+-      shell: bash
+-      run: |
+-        cd build
+-        mkdir archive
+-        cp ${{github.workspace}}/build/libopenal.so archive/
+-
+-    - name: Upload build as a workflow artifact
+-      uses: actions/upload-artifact@v4
+-      if: ${{ contains(matrix.config.name, 'Win') || contains(matrix.config.name, 'Android') }}
+-      with:
+-        name: soft_oal-${{matrix.config.name}}
+-        path: build/archive
+-
+-    outputs:
+-      CommitTag: ${{env.CommitTag}}
+-      CommitHashShort: ${{env.CommitHashShort}}
+-      CommitCount: ${{env.CommitCount}}
+-      CommitDate: ${{env.CommitDate}}
+-
+-  release:
+-    if: github.event_name != 'pull_request'
+-    needs: build
+-    runs-on: ubuntu-latest
+-    steps:
+-
+-    - name: Download build artifacts
+-      uses: actions/download-artifact@v4.1.7
+-      with:
+-        path: "build"
+-        pattern: "*-Win??-Release"
+-        github-token: "${{secrets.GITHUB_TOKEN}}"
+-
+-    - name: Set up build folders
+-      run: |
+-        mkdir -p build/release/OpenALSoft/Documentation
+-        mkdir -p build/release/OpenALSoft/Win32
+-        mkdir -p build/release/OpenALSoft/Win64
+-        echo "${{github.repository}}" >>                                                                              "build/release/OpenALSoft/Documentation/Version.txt"
+-        echo "v${{needs.build.outputs.CommitTag}}-${{needs.build.outputs.CommitHashShort}} ${{github.ref_name}}" >>   "build/release/OpenALSoft/Documentation/Version.txt"
+-        echo "Commit #${{needs.build.outputs.CommitCount}}" >>                                                        "build/release/OpenALSoft/Documentation/Version.txt"
+-        echo "${{needs.build.outputs.CommitDate}}" >>                                                                 "build/release/OpenALSoft/Documentation/Version.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/README.md               -o "build/release/OpenALSoft/Documentation/ReadMe.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/ChangeLog               -o "build/release/OpenALSoft/Documentation/ChangeLog.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/COPYING                 -o "build/release/OpenALSoft/Documentation/License.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/BSD-3Clause             -o "build/release/OpenALSoft/Documentation/License_BSD-3Clause.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/LICENSE-pffft           -o "build/release/OpenALSoft/Documentation/License_PFFFT.txt"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/alsoftrc.sample         -o "build/release/OpenALSoft/Win32/alsoft.ini"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/alsoftrc.sample         -o "build/release/OpenALSoft/Win64/alsoft.ini"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/logging/log.cmd         -o "build/release/OpenALSoft/Win32/log.cmd"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/logging/log.cmd         -o "build/release/OpenALSoft/Win64/log.cmd"
+-        cp "build/soft_oal-Win32-Release/soft_oal.dll"                                                                "build/release/OpenALSoft/Win32/OpenAL32.dll"
+-        cp "build/soft_oal-Win64-Release/soft_oal.dll"                                                                "build/release/OpenALSoft/Win64/OpenAL32.dll"
+-        cp -r "build/release/OpenALSoft"                                                                              "build/release/OpenALSoft+HRTF"
+-        cp "build/release/OpenALSoft+HRTF/Win32/alsoft.ini"                                                           "build/release/OpenALSoft+HRTF/Documentation/alsoft.ini"
+-        curl https://raw.githubusercontent.com/${{github.repository}}/${{github.ref_name}}/configs/HRTF/alsoft.ini -o "build/release/OpenALSoft+HRTF/Win32/alsoft.ini"
+-        cp "build/release/OpenALSoft+HRTF/Win32/alsoft.ini"                                                           "build/release/OpenALSoft+HRTF/Win64/alsoft.ini"
+-
+-    - name: Compress artifacts
+-      run: |
+-        cd build/release
+-        7z a OpenALSoft.zip      ./OpenALSoft/*
+-        7z a OpenALSoft+HRTF.zip ./OpenALSoft+HRTF/*
+-
+-    - name: GitHub pre-release
+-      uses: "Sweeistaken/sweelease@v1.1"
+-      with:
+-        repo_token: "${{secrets.GITHUB_TOKEN}}"
+-        automatic_release_tag: "latest"
+-        prerelease: true
+-        title: "OpenAL Soft v${{needs.build.outputs.CommitTag}}-${{needs.build.outputs.CommitHashShort}}"
+-        files: "build/release/*"
+diff --git a/.github/workflows/lwjgl.yml b/.github/workflows/lwjgl.yml
+new file mode 100644
+index 0000000..cfdf0d7
+--- /dev/null
++++ b/.github/workflows/lwjgl.yml
+@@ -0,0 +1,331 @@
++name: LWJGL Build
++
++on:
++  workflow_dispatch:
++  push:
++    branches:
++      - master
++
++env:
++  AWS_DEFAULT_REGION: us-east-1
++  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
++  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
++  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
++
++jobs:
++  linux:
++    name: Linux
++    runs-on: ubuntu-latest
++    container:
++      image: almalinux:8
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x64]
++        include:
++          - ARCH: x64
++            PACKAGES: alsa-lib-devel pulseaudio-libs-devel portaudio-devel jack-audio-connection-kit-devel dbus-devel pipewire-devel
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - name: Install git
++        run: dnf -y install git
++      - name: Clone repository
++        run: git clone --depth 3 https://github.com/${{ github.repository }}.git .
++      - name: Install build dependencies
++        run: |
++          dnf -y install epel-release wget
++          wget https://pkgs.sysadmins.ws/el8/base/x86_64/raven-release-1.0.2-1.el8.noarch.rpm
++          rpm -ivh raven-release-1.0.2-1.el8.noarch.rpm
++          dnf config-manager --set-enabled powertools
++          dnf config-manager --set-enabled raven-extras
++          dnf -y update
++          dnf -y install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ python3 cmake awscli
++      - name: Install OpenAL Soft dependencies
++        run: dnf -y install ${{matrix.PACKAGES}}
++      - name: Configure build
++        run: |
++          git config --global --add safe.directory $PWD
++          source /opt/rh/gcc-toolset-15/enable || true
++          cmake -B build \
++            -DALSOFT_REQUIRE_RTKIT=ON \
++            -DALSOFT_REQUIRE_ALSA=ON \
++            -DALSOFT_REQUIRE_OSS=ON \
++            -DALSOFT_REQUIRE_PORTAUDIO=ON \
++            -DALSOFT_REQUIRE_PULSEAUDIO=ON \
++            -DALSOFT_REQUIRE_JACK=ON \
++            -DALSOFT_REQUIRE_PIPEWIRE=ON \
++            -DALSOFT_EMBED_HRTF_DATA=YES \
++            -DCMAKE_BUILD_TYPE=Release \
++            -DCMAKE_C_FLAGS:STRING="${CMAKE_C_FLAGS} -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
++      - name: Build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          cmake --build build --parallel
++          strip build/libopenal.so
++      - name: Upload artifact
++        run: aws s3 cp build/libopenal.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopenal.so.git
++          aws s3 cp libopenal.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  linux-cross:
++    name: Linux Cross
++    runs-on: ${{matrix.RUNNER}}
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [arm32, arm64, ppc64le, riscv64]
++        include:
++          - ARCH: arm32
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: armhf
++            TRIPLET: arm-linux-gnueabihf
++            GCC: 12
++            CMAKE_PARAMS: -DPROCESSOR=arm
++          - ARCH: arm64
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: arm64
++            TRIPLET: aarch64-linux-gnu
++            GCC: 12
++            # -Bsymbolic-functions is required to avoid link-time errors such as:
++            #   relocation R_AARCH64_ADR_PREL_PG_HI21 against symbol 'alcCreateContext' which may bind externally can not be used when making a shared object
++            # This only happens on aarch64 due to ABI/toolchain differences. The problem is that export_list.h builds a constant table of function pointers
++            # to exported functions that may be relocated (e.g. via LD_PRELOAD).
++            CMAKE_PARAMS: -DPROCESSOR=aarch64 -DCMAKE_SHARED_LINKER_FLAGS:STRING="${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic-functions"
++          - ARCH: ppc64le
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: ppc64el
++            TRIPLET: powerpc64le-linux-gnu
++            GCC: 12
++            CMAKE_PARAMS: -DPROCESSOR=powerpc64le
++          - ARCH: riscv64
++            RUNNER: ubuntu-24.04
++            CROSS_ARCH: riscv64
++            TRIPLET: riscv64-linux-gnu
++            GCC: 14
++            CMAKE_PARAMS: -DPROCESSOR=riscv64
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Install dependencies
++        run: |
++          sudo apt-mark hold python3
++          sudo apt-get -yq update
++          sudo apt-get -yq install cmake build-essential \
++            gcc-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            g++-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            libc6-dev-${{matrix.CROSS_ARCH}}-cross
++      - name: Prepare cross-compilation for ${{matrix.CROSS_ARCH}}
++        if: matrix.RUNNER == 'ubuntu-22.04'
++        run: |
++          sudo grep 'deb ' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/ports.list
++          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
++          sudo sed -i 's#^deb [^ ]\+#deb [arch=${{matrix.CROSS_ARCH}}] https://ports.ubuntu.com/ubuntu-ports/#' /etc/apt/sources.list.d/ports.list
++          sudo dpkg --add-architecture ${{matrix.CROSS_ARCH}}
++          sudo apt-get update
++      - name: Prepare cross-compilation for ${{matrix.CROSS_ARCH}}
++        if: matrix.RUNNER == 'ubuntu-24.04'
++        run: |
++          native="$(dpkg --print-architecture)"
++          . /etc/os-release
++          suite="${VERSION_CODENAME}"
++          keyring="/usr/share/keyrings/ubuntu-archive-keyring.gpg"
++          components="main restricted universe multiverse"
++
++          sudo tee /etc/apt/sources.list.d/ubuntu.sources >/dev/null <<EOF
++          Types: deb
++          URIs: http://archive.ubuntu.com/ubuntu/
++          Suites: ${suite} ${suite}-updates ${suite}-backports
++          Components: ${components}
++          Architectures: ${native}
++          Signed-By: ${keyring}
++
++          Types: deb
++          URIs: http://security.ubuntu.com/ubuntu/
++          Suites: ${suite}-security
++          Components: ${components}
++          Architectures: ${native}
++          Signed-By: ${keyring}
++          EOF
++
++          sudo tee /etc/apt/sources.list.d/ci-ubuntu-ports.sources >/dev/null <<EOF
++          Types: deb
++          URIs: https://ports.ubuntu.com/ubuntu-ports/
++          Suites: ${suite} ${suite}-updates ${suite}-backports ${suite}-security
++          Components: ${components}
++          Architectures: ${{matrix.CROSS_ARCH}}
++          Signed-By: ${keyring}
++          EOF
++
++          sudo dpkg --add-architecture ${{matrix.CROSS_ARCH}}
++          sudo apt-get update
++      - name: Install cross-compilation dependencies
++        run: |
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install \
++            libpulse-dev:${{matrix.CROSS_ARCH}} \
++            portaudio19-dev:${{matrix.CROSS_ARCH}} \
++            libasound2-dev:${{matrix.CROSS_ARCH}} \
++            libjack-dev:${{matrix.CROSS_ARCH}} \
++            libdbus-1-dev:${{matrix.CROSS_ARCH}} \
++            libpipewire-0.3-dev:${{matrix.CROSS_ARCH}}
++      - name: Configure build
++        #-DCMAKE_TOOLCHAIN_FILE=../XCompile-Linux.txt \
++        run: |
++          export PKG_CONFIG_LIBDIR="/usr/lib/${{matrix.TRIPLET}}/pkgconfig:/usr/share/pkgconfig"
++          CC=${{matrix.TRIPLET}}-gcc-${{matrix.GCC}} CXX=${{matrix.TRIPLET}}-g++-${{matrix.GCC}} cmake -B build \
++            -DALSOFT_REQUIRE_RTKIT=ON \
++            -DALSOFT_REQUIRE_ALSA=ON \
++            -DALSOFT_REQUIRE_OSS=ON \
++            -DALSOFT_REQUIRE_PORTAUDIO=ON \
++            -DALSOFT_REQUIRE_PULSEAUDIO=ON \
++            -DALSOFT_REQUIRE_JACK=ON \
++            -DALSOFT_REQUIRE_PIPEWIRE=ON \
++            -DALSOFT_EMBED_HRTF_DATA=YES \
++            -DCMAKE_BUILD_TYPE=Release \
++            -DCMAKE_C_FLAGS:STRING="${CMAKE_C_FLAGS} -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0" \
++            -DHOST=${{matrix.TRIPLET}} \
++            ${{matrix.CMAKE_PARAMS}}
++      - name: Build
++        run: |
++          git config --global --add safe.directory $(pwd)
++          cmake --build build --parallel
++          ${{matrix.TRIPLET}}-strip build/libopenal.so
++      - name: Upload artifact
++        run: aws s3 cp build/libopenal.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopenal.so.git
++          aws s3 cp libopenal.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  freebsd-cross:
++    name: FreeBSD Cross
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Start VM
++        uses: cross-platform-actions/action@v1.3.0
++        with:
++          operating_system: freebsd
++          architecture: x86-64
++          version: '14.4'
++          memory: 4G
++      - name: Install build dependencies
++        shell: cpa.sh {0}
++        run: sudo pkg install -y git cmake pkgconf gmake
++      - name: Install dependencies
++        shell: cpa.sh {0}
++        run: sudo pkg install -y git alsa-lib pulseaudio portaudio jackit dbus pipewire
++      - name: Configure build
++        shell: cpa.sh {0}
++        run: |
++          cmake -B build \
++            -DALSOFT_REQUIRE_RTKIT=ON \
++            -DALSOFT_REQUIRE_ALSA=ON \
++            -DALSOFT_REQUIRE_OSS=ON \
++            -DALSOFT_REQUIRE_PORTAUDIO=ON \
++            -DALSOFT_REQUIRE_PULSEAUDIO=ON \
++            -DALSOFT_REQUIRE_JACK=ON \
++            -DALSOFT_REQUIRE_PIPEWIRE=ON \
++            -DALSOFT_EMBED_HRTF_DATA=YES \
++            -DCMAKE_BUILD_TYPE=Release \
++            -DCMAKE_C_FLAGS="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
++      - name: Build
++        shell: cpa.sh {0}
++        run: |
++          cmake --build build
++          strip build/libopenal.so
++      - name: Upload artifact
++        run: aws s3 cp build/libopenal.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopenal.so.git
++          aws s3 cp libopenal.so.git s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++
++  macos:
++    name: macOS
++    runs-on: ${{matrix.RUNNER}}
++    strategy:
++      matrix:
++        ARCH: [x64, arm64]
++        include:
++          - ARCH: x64
++            RUNNER: macos-26-intel
++            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15 -DCMAKE_OSX_ARCHITECTURES=x86_64
++          - ARCH: arm64
++            RUNNER: macos-26
++            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=arm64
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Configure build
++        run: cmake -B build -DALSOFT_REQUIRE_COREAUDIO=ON -DALSOFT_EMBED_HRTF_DATA=YES -DCMAKE_BUILD_TYPE=Release ${{matrix.CMAKE_PARAMS}}
++      - name: Build
++        run: |
++          cmake --build build --parallel
++          strip -u -r build/libopenal.dylib
++      - name: Upload artifact
++        run: aws s3 cp build/libopenal.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libopenal.dylib.git
++          aws s3 cp libopenal.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  windows:
++    name: Windows
++    runs-on: windows-2022
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x86, x64, arm64]
++        include:
++          - ARCH: x86
++            PLATFORM: Win32
++            #VCTOOLS: x86.x64
++          - ARCH: x64
++            PLATFORM: x64
++            #VCTOOLS: x86.x64
++          - ARCH: arm64
++            PLATFORM: ARM64
++            #VCTOOLS: ARM64
++    defaults:
++      run:
++        shell: cmd
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++#      - name: Install Visual Studio 2026 Build Tools
++#        shell: pwsh
++#        run: |
++#          choco install cmake
++#          choco install visualstudio2026buildtools --package-parameters "`
++#            --add Microsoft.VisualStudio.Workload.VCTools `
++#            --add Microsoft.VisualStudio.Component.VC.Tools.${{matrix.VCTOOLS}} `
++#            --includeRecommended `
++#            --quiet" `
++#            -y `
++#            --ignore-package-exit-codes=3010
++      - name: Configure build
++        #-T ClangCL
++        run: cmake -B build -G "Visual Studio 17 2022" -A ${{matrix.PLATFORM}} -DALSOFT_REQUIRE_WINMM=ON -DALSOFT_REQUIRE_DSOUND=ON -DALSOFT_REQUIRE_WASAPI=ON -DALSOFT_EMBED_HRTF_DATA=ON -DALSOFT_EAX=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"
++      - name: Build
++        run: cmake --build build --parallel --config Release
++      - name: Upload artifact
++        run: aws s3 cp build\Release\OpenAL32.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/OpenAL.dll ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%%H --skip 1 -n 1 > OpenAL.dll.git
++          aws s3 cp OpenAL.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+diff --git a/.github/workflows/utils.yml b/.github/workflows/utils.yml
+deleted file mode 100644
+index 4683a4e..0000000
+--- a/.github/workflows/utils.yml
++++ /dev/null
+@@ -1,85 +0,0 @@
+-name: utils
+-
+-on:
+-  push:
+-    paths:
+-      - 'utils/**'
+-      - 'examples/**'
+-      - '.github/workflows/utils.yml'
+-
+-  workflow_dispatch:
+-
+-env:
+-  BUILD_TYPE: Release
+-  Branch: ${{github.ref_name}}
+-
+-jobs:
+-  Win64:
+-    runs-on: windows-latest
+-
+-    steps:
+-    - name: Clone repo and submodules
+-      run: git clone https://github.com/${{github.repository}}.git . --branch ${{env.Branch}}
+-
+-    - name: Get current date, commit hash and count
+-      run: |
+-        echo "CommitDate=$(git show -s --date=format:'%Y-%m-%d' --format=%cd)" >> $env:GITHUB_ENV
+-        echo "CommitHashShort=$(git rev-parse --short=7 HEAD)" >> $env:GITHUB_ENV
+-        echo "CommitCount=$(git rev-list --count ${{env.Branch}} --)" >> $env:GITHUB_ENV
+-
+-    - name: Clone libmysofa
+-      run: |
+-        git clone https://github.com/hoene/libmysofa.git --branch v1.3.3
+-
+-    - name: Add MSBuild to PATH
+-      uses: microsoft/setup-msbuild@v1.1.3
+-
+-    - name: Restore libmysofa NuGet packages
+-      working-directory: ${{github.workspace}}/libmysofa
+-      run: nuget restore ${{github.workspace}}/libmysofa/windows/libmysofa.sln
+-
+-    - name: Build libmysofa
+-      working-directory: ${{github.workspace}}/libmysofa
+-      run: msbuild /m /p:Configuration=${{env.BUILD_TYPE}} ${{github.workspace}}/libmysofa/windows/libmysofa.sln
+-
+-    - name: Configure CMake
+-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -D "MYSOFA_LIBRARY=${{github.workspace}}/libmysofa/windows/bin/x64/Release/mysofa.lib" -D "MYSOFA_INCLUDE_DIR=${{github.workspace}}/libmysofa/src/hrtf" -D "ZLIB_LIBRARY=${{github.workspace}}/libmysofa/windows/third-party/zlib-1.2.11/lib/zlib.lib" -D "ZLIB_INCLUDE_DIR=${{github.workspace}}/libmysofa/windows/third-party/zlib-1.2.11/include"
+-
+-    - name: Build
+-      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+-
+-    - name: Make Artifacts folder
+-      run: |
+-        mkdir "Artifacts"
+-        mkdir "Release"
+-
+-    - name: Collect artifacts
+-      run: |
+-        copy "build/Release/makemhr.exe" "Artifacts/makemhr.exe"
+-        copy "build/Release/sofa-info.exe" "Artifacts/sofa-info.exe"
+-        copy "build/Release/alrecord.exe" "Artifacts/alrecord.exe"
+-        copy "build/Release/altonegen.exe" "Artifacts/altonegen.exe"
+-        copy "build/Release/openal-info.exe" "Artifacts/openal-info.exe"
+-        copy "build/Release/allafplay.exe" "Artifacts/allafplay.exe"
+-        copy "libmysofa/windows/third-party/zlib-1.2.11/bin/zlib.dll" "Artifacts/zlib.dll"
+-
+-    - name: Upload artifacts
+-      uses: actions/upload-artifact@v4
+-      with:
+-        name: ${{env.CommitDate}}_utils-r${{env.CommitCount}}@${{env.CommitHashShort}}
+-        path: "Artifacts/"
+-
+-    - name: Compress artifacts
+-      uses: papeloto/action-zip@v1
+-      with:
+-        files: Artifacts/
+-        dest: "Release/utils.zip"
+-
+-    - name: GitHub pre-release
+-      uses: "marvinpinto/action-automatic-releases@latest"
+-      with:
+-        repo_token: "${{secrets.GITHUB_TOKEN}}"
+-        automatic_release_tag: "utils"
+-        prerelease: true
+-        title: "[${{env.CommitDate}}] utils-r${{env.CommitCount}}@${{env.CommitHashShort}}"
+-        files: "Release/utils.zip"
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 069af28..45c5433 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -87,18 +87,18 @@ option(ALSOFT_DLOPEN_NOTES  "Record dlopen dependencies in .note.dlopen section"
+ 
+ option(ALSOFT_WERROR  "Treat compile warnings as errors"      OFF)
+ 
+-option(ALSOFT_UTILS "Build utility programs"  ON)
+-option(ALSOFT_NO_CONFIG_UTIL "Disable building the alsoft-config utility" OFF)
++option(ALSOFT_UTILS "Build utility programs"  OFF)
++option(ALSOFT_NO_CONFIG_UTIL "Disable building the alsoft-config utility" ON)
+ 
+-option(ALSOFT_EXAMPLES  "Build example programs"  ON)
++option(ALSOFT_EXAMPLES  "Build example programs"  OFF)
+ option(ALSOFT_TESTS "Build test programs"  OFF)
+ 
+-option(ALSOFT_INSTALL "Install main library" ON)
+-option(ALSOFT_INSTALL_CONFIG "Install alsoft.conf sample configuration file" ON)
+-option(ALSOFT_INSTALL_HRTF_DATA "Install HRTF data files" ON)
+-option(ALSOFT_INSTALL_AMBDEC_PRESETS "Install AmbDec preset files" ON)
+-option(ALSOFT_INSTALL_EXAMPLES "Install example programs (alplay, alstream, ...)" ON)
+-option(ALSOFT_INSTALL_UTILS "Install utility programs (openal-info, alsoft-config, ...)" ON)
++option(ALSOFT_INSTALL "Install main library" OFF)
++option(ALSOFT_INSTALL_CONFIG "Install alsoft.conf sample configuration file" OFF)
++option(ALSOFT_INSTALL_HRTF_DATA "Install HRTF data files" OFF)
++option(ALSOFT_INSTALL_AMBDEC_PRESETS "Install AmbDec preset files" OFF)
++option(ALSOFT_INSTALL_EXAMPLES "Install example programs (alplay, alstream, ...)" OFF)
++option(ALSOFT_INSTALL_UTILS "Install utility programs (openal-info, alsoft-config, ...)" OFF)
+ option(ALSOFT_UPDATE_BUILD_VERSION "Update git build version info" ON)
+ 
+ option(ALSOFT_EAX "Enable legacy EAX extensions" ${WIN32})
+diff --git a/XCompile-Linux.txt b/XCompile-Linux.txt
+new file mode 100644
+index 0000000..111e3e2
+--- /dev/null
++++ b/XCompile-Linux.txt
+@@ -0,0 +1,28 @@
++# Cross-compiling requires CMake 2.6 or newer. Example:
++# cmake .. -DCMAKE_TOOLCHAIN_FILE=../XCompile-Android.txt -DHOST=arm-linux-androideabi
++# Where 'arm-linux-androideabi' is the host prefix for the cross-compiler. If
++# you already have a toolchain file setup, you may use that instead of this
++# file. Make sure to set CMAKE_FIND_ROOT_PATH to where the NDK toolchain was
++# installed (e.g. "$ENV{HOME}/toolchains/arm-linux-androideabi-r10c-21").
++
++# the name of the target operating system
++SET(CMAKE_SYSTEM_NAME Linux)
++SET(CMAKE_SYSTEM_PROCESSOR "${PROCESSOR}")
++
++# which compilers to use for C and C++
++SET(CMAKE_C_COMPILER "${HOST}-gcc-12")
++SET(CMAKE_CXX_COMPILER "${HOST}-g++-12")
++SET(CMAKE_RC_COMPILER "${HOST}-windres-12")
++
++# here is the target environment located
++SET(CMAKE_FIND_ROOT_PATH "/usr")
++
++# here is where stuff gets installed to
++SET(CMAKE_INSTALL_PREFIX "${CMAKE_FIND_ROOT_PATH}" CACHE STRING "Install path prefix, prepended onto install directories." FORCE)
++
++# adjust the default behaviour of the FIND_XXX() commands:
++# search headers and libraries in the target environment, search
++# programs in the host environment
++set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
++set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
++set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+diff --git a/alc/backends/dsound.cpp b/alc/backends/dsound.cpp
+index 9117cf2..cf69df5 100644
+--- a/alc/backends/dsound.cpp
++++ b/alc/backends/dsound.cpp
+@@ -324,7 +324,12 @@ void DSoundPlayback::open(std::string_view name)
+     if(SUCCEEDED(hr))
+         hr = DirectSoundCreate(guid, al::out_ptr(ds), nullptr);
+     if(SUCCEEDED(hr))
+-        hr = ds->SetCooperativeLevel(GetForegroundWindow(), DSSCL_PRIORITY);
++    {
++        HWND hWnd = GetForegroundWindow();
++        if (hWnd == NULL)
++            hWnd = GetDesktopWindow();
++        hr = ds->SetCooperativeLevel(hWnd, DSSCL_PRIORITY);
++	}
+     if(FAILED(hr))
+         throw al::backend_exception{al::backend_error::DeviceError, "Device init failed: {:#x}",
+             as_unsigned(hr)};
+diff --git a/alc/backends/pipewire.cpp b/alc/backends/pipewire.cpp
+index 7f925db..a2f280e 100644
+--- a/alc/backends/pipewire.cpp
++++ b/alc/backends/pipewire.cpp
+@@ -667,7 +667,14 @@ struct EventManager {
+     static void RemoveDevice(u32 id);
+     static auto GetDeviceList() noexcept { return std::span{sList}; }
+ 
+-    ~EventManager() { if(mLoop) mLoop.stop(); }
++    ~EventManager()
++    {
++        /* LWJGL: Use the explicit cleanup path so listener hooks are removed and
++         * zeroed before global/static destruction. This avoids exit-time crashes
++         * with newer PipeWire versions leaving mCoreListener in stale list state.
++         */
++        kill();
++    }
+ 
+     auto init() -> bool;
+ 
+diff --git a/alc/export_list.h b/alc/export_list.h
+index 9dbf9ea..a03fa1b 100644
+--- a/alc/export_list.h
++++ b/alc/export_list.h
+@@ -344,6 +344,9 @@ inline const auto alcFunctions = std::to_array({
+ 
+     DECL(alBufferDataStaticDirect),
+     DECL(alBufferCallbackDirectSOFT),
++    DECL(alGetBufferPtrDirectSOFT), /* LWJGL */
++    DECL(alGetBuffer3PtrDirectSOFT),
++    DECL(alGetBufferPtrvDirectSOFT),
+     DECL(alBufferSubDataDirectSOFT),
+     DECL(alBufferStorageDirectSOFT),
+     DECL(alMapBufferDirectSOFT),
+@@ -367,6 +370,8 @@ inline const auto alcFunctions = std::to_array({
+ 
+     DECL(alEventControlDirectSOFT),
+     DECL(alEventCallbackDirectSOFT),
++    DECL(alGetPointerDirectSOFT), /* LWJGL */
++    DECL(alGetPointervDirectSOFT),
+ 
+     DECL(alDebugMessageCallbackDirectEXT),
+     DECL(alDebugMessageInsertDirectEXT),

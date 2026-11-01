@@ -1,0 +1,24 @@
+From 513876eaebf2066cbc56c9a0e545f0694d058876 Mon Sep 17 00:00:00 2001
+From: Coredex <samdhi2323@gmail.com>
+Date: Sun, 1 Nov 2026 22:49:21 +0530
+Subject: [PATCH] kotlinc: one backend thread
+
+Kotlin's parallel JVM code generation (-Xbackend-threads=0) intermittently fails with an
+ArrayIndexOutOfBoundsException in JvmIrCodegenFactory.invokeCodegen (ArrayList.add from worker
+threads). Single-threaded codegen is deterministic; it only costs some build time.
+---
+ config/cli/kotlinc.args | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/config/cli/kotlinc.args b/config/cli/kotlinc.args
+index 69dc398..f5db5d8 100644
+--- a/config/cli/kotlinc.args
++++ b/config/cli/kotlinc.args
+@@ -7,5 +7,5 @@
+ -Xno-param-assertions
+ -Xno-receiver-assertions
+ -Xreport-perf
+--Xbackend-threads=0
++-Xbackend-threads=1
+ -verbose
+\ No newline at end of file

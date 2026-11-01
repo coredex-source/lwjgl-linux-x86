@@ -1,0 +1,1553 @@
+From 0ff3b1b0e137ba6e793abf1d9b0b2cd51013ecaf Mon Sep 17 00:00:00 2001
+From: Ioannis Tsakpinis <iotsakp@gmail.com>
+Date: Sat, 5 Nov 2022 22:57:50 +0200
+Subject: [PATCH] LWJGL configuration
+
+---
+ .github/dependabot.yml                 |  10 -
+ .github/workflows/arm.yml              |  25 ---
+ .github/workflows/c++-versions.yml     |  45 ----
+ .github/workflows/cifuzz.yml           |  28 ---
+ .github/workflows/configs-build.yml    |  44 ----
+ .github/workflows/coverity-scan.yml    |  42 ----
+ .github/workflows/crossbuild-mingw.yml |  85 -------
+ .github/workflows/docs.yml             |  79 -------
+ .github/workflows/linux.yml            |  99 ---------
+ .github/workflows/lwjgl.yml            | 293 +++++++++++++++++++++++++
+ .github/workflows/macos.yml            |  63 ------
+ .github/workflows/msvc.yml             |  61 -----
+ .github/workflows/msys2.yml            |  74 -------
+ .github/workflows/rust.yml             |  66 ------
+ .github/workflows/sanitizers.yml       |  79 -------
+ .github/workflows/scorecard.yml        |  64 ------
+ .github/workflows/valgrind.yml         |  44 ----
+ lwjgl_linux_arm32.cross                |  12 +
+ lwjgl_linux_arm64.cross                |  12 +
+ lwjgl_linux_ppc64le.cross              |  12 +
+ lwjgl_linux_riscv64.cross              |  12 +
+ lwjgl_macos_arm64.cross                |  21 ++
+ lwjgl_macos_x64.cross                  |  21 ++
+ lwjgl_windows_arm64.cross              |  12 +
+ src/meson.build                        |   7 +-
+ subprojects/freetype2.wrap             |  14 +-
+ 26 files changed, 406 insertions(+), 918 deletions(-)
+ delete mode 100644 .github/dependabot.yml
+ delete mode 100644 .github/workflows/arm.yml
+ delete mode 100644 .github/workflows/c++-versions.yml
+ delete mode 100644 .github/workflows/cifuzz.yml
+ delete mode 100644 .github/workflows/configs-build.yml
+ delete mode 100644 .github/workflows/coverity-scan.yml
+ delete mode 100644 .github/workflows/crossbuild-mingw.yml
+ delete mode 100644 .github/workflows/docs.yml
+ delete mode 100644 .github/workflows/linux.yml
+ create mode 100644 .github/workflows/lwjgl.yml
+ delete mode 100644 .github/workflows/macos.yml
+ delete mode 100644 .github/workflows/msvc.yml
+ delete mode 100644 .github/workflows/msys2.yml
+ delete mode 100644 .github/workflows/rust.yml
+ delete mode 100644 .github/workflows/sanitizers.yml
+ delete mode 100644 .github/workflows/scorecard.yml
+ delete mode 100644 .github/workflows/valgrind.yml
+ create mode 100644 lwjgl_linux_arm32.cross
+ create mode 100644 lwjgl_linux_arm64.cross
+ create mode 100644 lwjgl_linux_ppc64le.cross
+ create mode 100644 lwjgl_linux_riscv64.cross
+ create mode 100644 lwjgl_macos_arm64.cross
+ create mode 100644 lwjgl_macos_x64.cross
+ create mode 100644 lwjgl_windows_arm64.cross
+
+diff --git a/.github/dependabot.yml b/.github/dependabot.yml
+deleted file mode 100644
+index 8725672a1..000000000
+--- a/.github/dependabot.yml
++++ /dev/null
+@@ -1,10 +0,0 @@
+-version: 2
+-updates:
+-  - package-ecosystem: "github-actions"
+-    directory: "/"
+-    schedule:
+-      interval: "weekly"
+-  - package-ecosystem: "pip"
+-    directory: "/.ci"
+-    schedule:
+-      interval: "weekly"
+diff --git a/.github/workflows/arm.yml b/.github/workflows/arm.yml
+deleted file mode 100644
+index 6bb28247e..000000000
+--- a/.github/workflows/arm.yml
++++ /dev/null
+@@ -1,25 +0,0 @@
+-name: arm
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  arm-none-eabi:
+-    runs-on: ubuntu-22.04
+-    container:
+-      image: devkitpro/devkitarm:latest
+-    steps:
+-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-      - name: Configure CMake
+-        run: |
+-          cmake -S . -B build \
+-            -DCMAKE_TOOLCHAIN_FILE=${DEVKITPRO}/cmake/3DS.cmake
+-      - name: Build
+-        run: make CXX_FLAGS="-w -DHB_NO_MT"
+-        working-directory: build
+diff --git a/.github/workflows/c++-versions.yml b/.github/workflows/c++-versions.yml
+deleted file mode 100644
+index 63f9e0233..000000000
+--- a/.github/workflows/c++-versions.yml
++++ /dev/null
+@@ -1,45 +0,0 @@
+-name: c++ versions
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-    name: ${{ matrix.name }}
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-          - name: g++ c++11
+-            CXX: g++
+-            CXX_STANDARD: c++11
+-            PACKAGES: g++
+-          - name: g++ c++2a
+-            CXX: g++
+-            CXX_STANDARD: c++2a
+-            PACKAGES: g++
+-          - name: clang c++11
+-            CXX: clang++
+-            CXX_STANDARD: c++11
+-            PACKAGES: clang
+-          - name: clang c++2a
+-            CXX: clang++
+-            CXX_STANDARD: c++2a
+-            PACKAGES: clang
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Install Dependencies
+-      run: |
+-        sudo apt-get update
+-        sudo apt install -y ${{ matrix.PACKAGES }}
+-    - name: Build
+-      run: ${{ matrix.CXX }} -c src/harfbuzz-subset.cc -DHB_NO_MT -Werror -std=${{ matrix.CXX_STANDARD }}
+diff --git a/.github/workflows/cifuzz.yml b/.github/workflows/cifuzz.yml
+deleted file mode 100644
+index d90485f3d..000000000
+--- a/.github/workflows/cifuzz.yml
++++ /dev/null
+@@ -1,28 +0,0 @@
+-name: CIFuzz
+-on: [pull_request]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  Fuzzing:
+-    runs-on: ubuntu-latest
+-    steps:
+-    - name: Build Fuzzers
+-      id: build
+-      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@a09cb739e2aa7722ecbc681411975d76d270be44 # master
+-      with:
+-        oss-fuzz-project-name: 'harfbuzz'
+-        dry-run: false
+-    - name: Run Fuzzers
+-      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@a09cb739e2aa7722ecbc681411975d76d270be44 # master
+-      with:
+-        oss-fuzz-project-name: 'harfbuzz'
+-        fuzz-seconds: 600
+-        dry-run: false
+-    - name: Upload Crash
+-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+-      if: failure() && steps.build.outcome == 'success'
+-      with:
+-        name: artifacts
+-        path: ./out/artifacts
+diff --git a/.github/workflows/configs-build.yml b/.github/workflows/configs-build.yml
+deleted file mode 100644
+index 1fe35d2d8..000000000
+--- a/.github/workflows/configs-build.yml
++++ /dev/null
+@@ -1,44 +0,0 @@
+-name: configs
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        config:
+-          - HB_DISABLE_DEPRECATED
+-          - HB_MINI
+-          - HB_LEAN
+-          - HB_TINY
+-          - HB_NO_DRAW
+-          - HB_NO_PAINT
+-
+-    name: ${{ matrix.config }}
+-
+-    steps:
+-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Create main.cc
+-      run: |
+-        cat <<EOF > main.cc
+-        #include "src/harfbuzz.cc"
+-        int main() { return 0; }
+-        EOF
+-        cat <<EOF > subset.cc
+-        #include "src/harfbuzz-subset.cc"
+-        EOF
+-    - name: install dependencies
+-      run: sudo apt-get install gcc
+-    - name: Build with ${{ matrix.config }}
+-      run: g++ -std=c++11 main.cc -D${{ matrix.config }}
+-    - name: Build subset library with ${{ matrix.config }}
+-      run: g++ -std=c++11 -c subset.cc -D${{ matrix.config }}
+diff --git a/.github/workflows/coverity-scan.yml b/.github/workflows/coverity-scan.yml
+deleted file mode 100644
+index efdcb4fac..000000000
+--- a/.github/workflows/coverity-scan.yml
++++ /dev/null
+@@ -1,42 +0,0 @@
+-name: coverity-scan
+-
+-on:
+-  schedule:
+-    - cron: '0 10 * * *' # Daily at 10:00 UTC
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  latest:
+-    runs-on: ubuntu-latest
+-    steps:
+-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-
+-      - run: sudo apt-get install gcc clang wget git curl pkg-config libfreetype6-dev libglib2.0-dev libicu-dev libgraphite2-dev
+-
+-      - name: Download Coverity
+-        run: |
+-          wget -q https://scan.coverity.com/download/cxx/linux64 --post-data "token=$TOKEN&project=HarfBuzz" -O cov-analysis-linux64.tar.gz
+-          mkdir cov-analysis-linux64
+-          tar xzf cov-analysis-linux64.tar.gz --strip 1 -C cov-analysis-linux64
+-        env:
+-          TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+-
+-      # ideally we should've used meson and ninja here but it complains about coverage or something
+-      - run: cov-analysis-linux64/bin/cov-build --dir cov-int clang src/hb-*.cc -DHAVE_FREETYPE -DHAVE_GRAPHITE2 -DHAVE_GLIB -DHAVE_ICU `pkg-config --cflags freetype2 graphite2 glib-2.0 icu-uc` -DHAVE_ROUNDF -DHAVE_SYS_MMAN_H -DHAVE_UNISTD_H -DHAVE_GETPAGESIZE -DHB_EXPERIMENTAL_API -c
+-
+-      - run: tar czvf harfbuzz.tgz cov-int
+-
+-      - name: submit to coverity
+-        run: |
+-          curl \
+-            --form project=HarfBuzz \
+-            --form token=$TOKEN \
+-            --form email=harfbuzz-bots-chatter@googlegroups.com \
+-            --form file=@harfbuzz.tgz \
+-            --form version=trunk \
+-            --form description="`git rev-parse --short HEAD`" \
+-            https://scan.coverity.com/builds?project=HarfBuzz
+-        env:
+-          TOKEN: ${{ secrets.COVERITY_SCAN_TOKEN }}
+diff --git a/.github/workflows/crossbuild-mingw.yml b/.github/workflows/crossbuild-mingw.yml
+deleted file mode 100644
+index 9a027e24f..000000000
+--- a/.github/workflows/crossbuild-mingw.yml
++++ /dev/null
+@@ -1,85 +0,0 @@
+-name: crossbuild-mingw
+-
+-on:
+-  push:
+-    branches: [ main ]
+-    tags: ["*.*.*"]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-    name: ${{ matrix.name }}
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-          - name: win32
+-            ARCH: 32
+-            PACKAGES: g++-mingw-w64-i686 wine wine32
+-          - name: win64
+-            ARCH: 64
+-            PACKAGES: g++-mingw-w64-x86-64 wine wine64 wine32:i386
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-    - name: Install Dependencies
+-      run: |
+-        sudo dpkg --add-architecture i386
+-        sudo apt-get update
+-        sudo apt install -y \
+-          zip \
+-          ${{ matrix.PACKAGES }}
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Build
+-      run: bash .ci/build-win.sh ${{ matrix.ARCH }}
+-    - name: Test
+-      run: meson devenv -Cbuild-win${{ matrix.ARCH }} meson test -t 10 --print-errorlogs --suite=harfbuzz
+-    - name: Archive artifacts
+-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+-      with:
+-        name: harfbuzz-win${{ matrix.ARCH }}
+-        path: harfbuzz-win${{ matrix.ARCH }}.zip
+-        if-no-files-found: error
+-
+-  release:
+-    name: Create and populate release
+-    permissions:
+-      contents: write
+-    needs: build
+-    runs-on: ubuntu-24.04
+-    if: contains(github.ref, 'refs/tags/')
+-    env:
+-      GH_TOKEN: ${{ github.token }}
+-    steps:
+-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-      - name: Download artifacts
+-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+-        with:
+-          merge-multiple: true
+-      - name: Rename artifacts
+-        run: |
+-          for file in harfbuzz-win*.zip; do
+-            mv -v "$file" "${file%.zip}-${{ github.ref_name }}.zip"
+-          done
+-      - name: Check for release
+-        id: create_release
+-        run: |
+-          if ! gh release view ${{ github.ref_name }}; then
+-            gh release create ${{ github.ref_name }} --title ${{ github.ref_name }}
+-          fi
+-      - name: Populate release
+-        run: |
+-          gh release upload ${{ github.ref_name }} harfbuzz-win*-${{ github.ref_name }}.zip --clobber
+diff --git a/.github/workflows/docs.yml b/.github/workflows/docs.yml
+deleted file mode 100644
+index 9f81db62f..000000000
+--- a/.github/workflows/docs.yml
++++ /dev/null
+@@ -1,79 +0,0 @@
+-name: docs
+-
+-on:
+-  push:
+-    branches: [ main ]
+-    tags: ["*.*.*"]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  docs:
+-    runs-on: ubuntu-24.04
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-      with:
+-        key: ${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+-    - name: Install Dependencies
+-      run: |
+-        sudo apt-get update
+-        sudo apt-get install \
+-          gcc \
+-          gobject-introspection \
+-          gtk-doc-tools \
+-          libcairo2-dev \
+-          libfreetype6-dev \
+-          libgirepository1.0-dev \
+-          libglib2.0-dev \
+-          libgraphite2-dev \
+-          libicu-dev \
+-          libpng-dev \
+-          pkg-config \
+-          zlib1g-dev \
+-          help2man
+-    - name: Setup Emscripten
+-      uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+-      with:
+-        version: latest
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Build HarfBuzz
+-      run: |
+-        ccache --version
+-        meson setup build \
+-          -Dauto_features=enabled \
+-          -Doptimization=2 \
+-          -Ddoc_tests=true \
+-          -Dgpu_demo=disabled \
+-          -Dchafa=disabled
+-        meson compile -Cbuild
+-    - name: Generate Documentation
+-      run: ninja -Cbuild harfbuzz-doc
+-    - name: Run Doc Tests
+-      run: meson test -Cbuild --print-errorlogs harfbuzz-doc-check
+-    - name: Build Web Demos
+-      run: |
+-        bash util/gpu/web/build.sh
+-        bash util/gpu/web/build-webgpu.sh
+-        cp util/gpu/web/dom.html util/gpu/web/out/
+-    - name: Stage for deployment
+-      run: |
+-        mkdir -p build/docs/html/hb-gpu-demo
+-        cp util/gpu/web/out/* build/docs/html/hb-gpu-demo/
+-    - name: Deploy
+-      if: github.ref_type == 'tag'
+-      run: .ci/deploy-docs.sh
+-      env:
+-        GH_TOKEN: ${{ secrets.DOCS_PUSH_TOKEN }}
+-        REVISION: ${{ github.sha }}
+diff --git a/.github/workflows/linux.yml b/.github/workflows/linux.yml
+deleted file mode 100644
+index 365b21861..000000000
+--- a/.github/workflows/linux.yml
++++ /dev/null
+@@ -1,99 +0,0 @@
+-name: linux
+-
+-on:
+-  push:
+-    branches: [ main ]
+-    tags: ["*.*.*"]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-      with:
+-        key: ${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+-    - name: Install Dependencies
+-      run: |
+-        sudo apt-get update
+-        sudo apt-get install \
+-          gcc \
+-          gobject-introspection \
+-          libcairo2-dev \
+-          libchafa-dev \
+-          libfreetype6-dev \
+-          libgirepository1.0-dev \
+-          libglib2.0-dev \
+-          libgraphite2-dev \
+-          libicu-dev \
+-          libpng-dev \
+-          libglew-dev \
+-          libglfw3-dev \
+-          libgl-dev \
+-          pkg-config \
+-          zlib1g-dev \
+-          help2man
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      run: |
+-        ccache --version
+-        meson setup build \
+-          -Dauto_features=enabled \
+-          -Dgraphite=enabled \
+-          -Dkbts=enabled \
+-          -Doptimization=2 \
+-          -Ddocs=disabled \
+-          -Dragel_subproject=true
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test --print-errorlogs -Cbuild
+-    - name: Dist
+-      run: |
+-        git reset --hard HEAD # ragel may have modified the source tree
+-        meson dist --no-tests -Cbuild
+-    - name: Archive artifacts
+-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+-      with:
+-        name: harfbuzz
+-        path: build/meson-dist/harfbuzz-*.tar.xz
+-        if-no-files-found: error
+-
+-  release:
+-    name: Create and populate release
+-    permissions:
+-      contents: write
+-    needs: build
+-    runs-on: ubuntu-24.04
+-    if: contains(github.ref, 'refs/tags/')
+-    env:
+-      GH_TOKEN: ${{ github.token }}
+-    steps:
+-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-      - name: Download artifacts
+-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+-        with:
+-          name: harfbuzz
+-      - name: Check for release
+-        id: create_release
+-        run: |
+-          if ! gh release view ${{ github.ref_name }}; then
+-            python3 src/check-release-notes.py NEWS ${{ github.ref_name }} > RELEASE_NOTES
+-            gh release create ${{ github.ref_name }} --title ${{ github.ref_name }} --notes-file RELEASE_NOTES
+-          fi
+-      - name: Populate release
+-        run: |
+-          gh release upload ${{ github.ref_name }} harfbuzz-${{ github.ref_name }}.tar.xz --clobber
+diff --git a/.github/workflows/lwjgl.yml b/.github/workflows/lwjgl.yml
+new file mode 100644
+index 000000000..6bbe0d84f
+--- /dev/null
++++ b/.github/workflows/lwjgl.yml
+@@ -0,0 +1,293 @@
++# IMPORTANT: after HEAD is updated, the "LWJGL" tag must be recreated!
++
++# This workflow builds the standalone harfbuzz library.
++# However, this git tag ("LWJGL") is also used by LWJGL-CI/freetype.
++# Any changes to non-workflow files should be tested with both workflows.
++
++name: LWJGL Build
++
++on:
++  push:
++    branches:
++      - main
++
++env:
++  AWS_DEFAULT_REGION: us-east-1
++  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
++  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
++  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
++  HARFBUZZ_PARAMS: --wrap-mode=default --force-fallback-for=libpng,zlib -Dlibpng:default_library=static -Dzlib:default_library=static -Dfreetype=disabled -Dsubset=disabled -Dtests=disabled -Dbenchmark=disabled -Ddocs=disabled -Dexperimental_api=true --buildtype=release -Db_lto=true -Db_ndebug=true
++
++jobs:
++  linux:
++    name: Linux
++    runs-on: ubuntu-latest
++    container:
++      image: almalinux:8
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [ x64 ]
++        include:
++          - ARCH: x64
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - name: Install git
++        run: dnf -y install git
++      - name: Clone repository
++        run: git clone --depth 3 https://github.com/${{ github.repository }}.git .
++      - name: Install build dependencies
++        run: |
++          dnf -y install epel-release wget
++          dnf config-manager --set-enabled powertools
++          dnf -y update
++          dnf -y install gcc-toolset-15-gcc gcc-toolset-15-gcc-c++ python3 awscli
++      - name: Install HarfBuzz dependencies
++        run: |
++          dnf -y install ninja-build
++          pip3 install meson
++      - name: Configure build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          meson setup build $HARFBUZZ_PARAMS
++      - name: Build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          meson compile --verbose -C build
++          strip build/src/libharfbuzz.so
++      - name: Upload artifact
++        run: |
++          aws s3 cp build/src/libharfbuzz.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-gpu.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-raster.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-vector.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.so.git
++          aws s3 cp libharfbuzz.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  linux-cross:
++    name: Linux Cross
++    runs-on: ${{matrix.RUNNER}}
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [arm32, arm64, ppc64le, riscv64]
++        include:
++          - ARCH: arm32
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: armhf
++            TRIPLET: arm-linux-gnueabihf
++            GCC: 12
++          - ARCH: arm64
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: arm64
++            TRIPLET: aarch64-linux-gnu
++            GCC: 12
++          - ARCH: ppc64le
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: ppc64el
++            TRIPLET: powerpc64le-linux-gnu
++            GCC: 12
++          - ARCH: riscv64
++            RUNNER: ubuntu-24.04
++            CROSS_ARCH: riscv64
++            TRIPLET: riscv64-linux-gnu
++            GCC: 14
++    env:
++      LWJGL_ARCH: ${{matrix.ARCH}}
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Install dependencies
++        run: |
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq update
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install ninja-build python3-pip \
++            gcc-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            g++-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            libc6-dev-${{matrix.CROSS_ARCH}}-cross
++      - name: Install meson
++        run: pip3 install meson
++      - name: Configure build
++        run: |
++          export PKG_CONFIG_LIBDIR="/usr/lib/${{matrix.TRIPLET}}/pkgconfig:/usr/share/pkgconfig"
++          meson setup build $HARFBUZZ_PARAMS --cross-file lwjgl_linux_${{matrix.ARCH}}.cross
++      - name: Build
++        run: |
++          meson compile --verbose -C build
++          ${{matrix.TRIPLET}}-strip build/src/libharfbuzz.so
++      - name: Upload artifact
++        run: |
++          aws s3 cp build/src/libharfbuzz.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-gpu.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-raster.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-vector.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $(pwd)
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.so.git
++          aws s3 cp libharfbuzz.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  freebsd-cross:
++    name: FreeBSD Cross
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Add user-local bin to PATH
++        run: echo "/home/runner/.local/bin" >> "$GITHUB_PATH"
++      - name: Start VM
++        uses: cross-platform-actions/action@v1.3.0
++        with:
++          operating_system: freebsd
++          architecture: x86-64
++          version: '14.4'
++          memory: 4G
++          environment_variables: HARFBUZZ_PARAMS
++      - name: Install build dependencies
++        shell: cpa.sh {0}
++        run: |
++          sudo pkg install -y git python3 ninja
++          python3 -m ensurepip --upgrade
++          export PATH=$PATH:/home/runner/.local/bin
++          pip3 install meson
++      - name: Configure build
++        shell: cpa.sh {0}
++        run: |
++          export PATH=$PATH:/home/runner/.local/bin
++          meson setup build $HARFBUZZ_PARAMS
++      - name: Build
++        shell: cpa.sh {0}
++        run: |
++          export PATH=$PATH:/home/runner/.local/bin
++          meson compile --verbose -C build
++          strip build/src/libharfbuzz.so
++      - name: Upload artifact
++        run: |
++          aws s3 cp build/src/libharfbuzz.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-gpu.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-raster.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-vector.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.so.git
++          aws s3 cp libharfbuzz.so.git s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++
++  macos:
++    name: macOS
++    runs-on: macos-latest
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x64, arm64]
++        include:
++          - ARCH: x64
++            MACOS: 10.11
++            MESON_PARAMS: --cross-file lwjgl_macos_x64.cross
++          - ARCH: arm64
++            MACOS: 11.0
++            MESON_PARAMS: --cross-file lwjgl_macos_arm64.cross
++            env:
++              MACOSX_DEPLOYMENT_TARGET: 11.0
++    steps:
++      - uses: actions/checkout@v3
++        with:
++          fetch-depth: 3
++      - name: Install dependencies
++        run: brew install meson
++      - name: Configure build
++        run: MACOSX_DEPLOYMENT_TARGET=${{matrix.MACOS}} meson setup build $HARFBUZZ_PARAMS -Dcoretext=enabled ${{matrix.MESON_PARAMS}}
++      - name: Build
++        run: |
++          MACOSX_DEPLOYMENT_TARGET=${{matrix.MACOS}} meson compile --verbose -C build
++          strip -u -r build/src/libharfbuzz.dylib
++      - name: Upload artifact
++        run: |
++          aws s3 cp build/src/libharfbuzz.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-gpu.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-raster.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build/src/libharfbuzz-vector.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H HEAD~2..HEAD~1 > libharfbuzz.dylib.git
++          aws s3 cp libharfbuzz.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  windows:
++    name: Windows
++    runs-on: windows-2022
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x86, x64, arm64]
++        include:
++          - ARCH: x86
++            MSVC_ARCH: amd64_x86
++            #MSVC_ARCH: x86
++            PLATFORM: Win32
++            MESON_PARAMS:
++            VCTOOLS: x86.x64
++          - ARCH: x64
++            MSVC_ARCH: amd64
++            PLATFORM: x64
++            MESON_PARAMS:
++            VCTOOLS: x86.x64
++          - ARCH: arm64
++            MSVC_ARCH: amd64_arm64
++            #MSVC_ARCH: arm64
++            PLATFORM: ARM64
++            MESON_PARAMS: --cross-file lwjgl_windows_arm64.cross
++            VCTOOLS: ARM64
++    defaults:
++      run:
++        shell: cmd
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - uses: ilammy/msvc-dev-cmd@v1
++        with:
++          arch: ${{matrix.MSVC_ARCH}}
++#      - name: Install Visual Studio 2026 Build Tools
++#        shell: pwsh
++#        run: |
++#          choco install visualstudio2026buildtools --package-parameters "`
++#            --add Microsoft.VisualStudio.Workload.VCTools `
++#            --add Microsoft.VisualStudio.Component.VC.Tools.${{matrix.VCTOOLS}} `
++#            --includeRecommended `
++#            --quiet" `
++#            -y `
++#            --ignore-package-exit-codes=3010
++      - uses: actions/setup-python@v6
++        with:
++          python-version: '3.14'
++      # Strawberry: see LWJGL-CI/freetype's workflow for details.
++      - name: Install dependencies
++        run: |
++          pip3 install -r .ci/requirements.txt --require-hashes
++          rmdir C:\Strawberry /s /q
++      - name: Configure build
++        # call "C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\Tools\VsDevCmd.bat" -host_arch=amd64 -arch=${{matrix.MSVC_ARCH}}
++        run: meson setup build %HARFBUZZ_PARAMS% -Dgdi=enabled -Ddirectwrite=enabled -Db_vscrt=mt ${{matrix.MESON_PARAMS}}
++      - name: Build
++        run: meson compile --verbose -C build
++      - name: Upload artifact
++        run: |
++          aws s3 cp build\src\harfbuzz.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build\src\harfbuzz-gpu.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build\src\harfbuzz-raster.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++          aws s3 cp build\src\harfbuzz-vector.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%%H HEAD~2..HEAD~1 > harfbuzz.dll.git
++          aws s3 cp harfbuzz.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+diff --git a/.github/workflows/macos.yml b/.github/workflows/macos.yml
+deleted file mode 100644
+index bcd050373..000000000
+--- a/.github/workflows/macos.yml
++++ /dev/null
+@@ -1,63 +0,0 @@
+-name: macos
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: macos-latest
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-      with:
+-        key: ${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+-    - name: Install Dependencies
+-      run: |
+-        export HOMEBREW_NO_AUTO_UPDATE=1
+-        export HOMEBREW_NO_INSTALL_CLEANUP=1
+-        brew rm -f pkg-config@0.29.2
+-        brew install \
+-          cairo \
+-          chafa \
+-          freetype \
+-          glib \
+-          gobject-introspection \
+-          glew \
+-          glfw \
+-          graphite2 \
+-          icu4c \
+-          libpng \
+-          meson \
+-          ninja \
+-          pkgconf
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      env:
+-        PKG_CONFIG_PATH: "/usr/local/opt/libffi/lib/pkgconfig"
+-      run: |
+-        brew link --force icu4c
+-        ccache --version
+-        meson setup build \
+-          -Dauto_features=enabled \
+-          -Ddocs=disabled \
+-          -Dcoretext=enabled \
+-          -Dgraphite=enabled \
+-          -Doptimization=2 \
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test --print-errorlogs -Cbuild
+diff --git a/.github/workflows/msvc.yml b/.github/workflows/msvc.yml
+deleted file mode 100644
+index b36fadc33..000000000
+--- a/.github/workflows/msvc.yml
++++ /dev/null
+@@ -1,61 +0,0 @@
+-name: msvc
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  msvc:
+-    runs-on: ${{ matrix.os }}
+-
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-          - name: msvc-2025-x86
+-            os: windows-2025
+-            ARCH: x86
+-          - name: msvc-2025-amd64
+-            os: windows-2025
+-            ARCH: amd64
+-    name: ${{ matrix.name }}
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-      with:
+-        variant: sccache
+-        key: ${{ github.job }}-${{ matrix.os }}-${{ matrix.ARCH }}
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Setup MSVC
+-      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+-      with:
+-        arch : ${{ matrix.ARCH }}
+-    - name: Install Python Dependencies
+-      run: |
+-        pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      run: |
+-          sccache --version
+-          meson setup build `
+-            --wrap-mode=forcefallback `
+-            --buildtype=release `
+-            -Dglib=enabled `
+-            -Dfreetype=enabled `
+-            -Dgdi=enabled `
+-            -Ddirectwrite=enabled `
+-            -Dgpu_demo=disabled
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test --print-errorlogs --suite=harfbuzz -Cbuild
+diff --git a/.github/workflows/msys2.yml b/.github/workflows/msys2.yml
+deleted file mode 100644
+index cb55c993f..000000000
+--- a/.github/workflows/msys2.yml
++++ /dev/null
+@@ -1,74 +0,0 @@
+-name: msys2
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  msys2:
+-    runs-on: windows-latest
+-
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-          - MSYSTEM: MINGW64
+-            MSYS2_ARCH: x86_64
+-          - MSYSTEM: CLANG64
+-            MSYS2_ARCH: clang-x86_64
+-    name: ${{ matrix.MSYSTEM }}
+-
+-    defaults:
+-      run:
+-        shell: msys2 {0}
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup MSYS2
+-      uses: msys2/setup-msys2@cf96e00c0aab3788743aaf63b64146f0d383cee9 # v2
+-      with:
+-        msystem: ${{ matrix.MSYSTEM }}
+-        update: true
+-        install: >-
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-cairo
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-freetype
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-cc
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-gettext
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-glib2
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-gobject-introspection
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-graphite2
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-icu
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-meson
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-ninja
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-pkgconf
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-python
+-          mingw-w64-${{ matrix.MSYS2_ARCH }}-python-pip
+-    - name: Install Python Dependencies
+-      run: |
+-        pip3 install -r .ci/requirements-fonttools.txt --require-hashes
+-    - name: Setup Meson
+-      run: |
+-        meson setup build \
+-          --wrap-mode=nodownload \
+-          --auto-features=enabled \
+-          -Ddocs=disabled \
+-          -Ddirectwrite=enabled \
+-          -Dgdi=enabled \
+-          -Dgraphite=enabled \
+-          -Dchafa=disabled \
+-          -Dgpu_demo=disabled
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test --print-errorlogs --suite=harfbuzz -Cbuild
+-    - name: Upload DLLs
+-      if: always()
+-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+-      with:
+-        name: libharfbuzz-${{ matrix.MSYS2_ARCH }}
+-        path: ./build/src/libharfbuzz-*.dll
+diff --git a/.github/workflows/rust.yml b/.github/workflows/rust.yml
+deleted file mode 100644
+index 5c4ee3a94..000000000
+--- a/.github/workflows/rust.yml
++++ /dev/null
+@@ -1,66 +0,0 @@
+-name: rust
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-      with:
+-        key: ${{ github.job }}-${{ runner.os }}-${{ runner.arch }}
+-    - uses: dtolnay/rust-toolchain@881ba7bf39a41cda34ac9e123fb41b44ed08232f # nightly
+-    - name: Install Dependencies
+-      run: |
+-        rustup component add \
+-          rust-src \
+-          rustfmt \
+-          clippy \
+-          --toolchain nightly-x86_64-unknown-linux-gnu
+-        sudo apt-get update
+-        sudo apt-get install \
+-          gcc \
+-          gobject-introspection \
+-          gtk-doc-tools \
+-          libcairo2-dev \
+-          libchafa-dev \
+-          libfreetype6-dev \
+-          libgirepository1.0-dev \
+-          libglib2.0-dev \
+-          libgraphite2-dev \
+-          libicu-dev \
+-          libpng-dev \
+-          pkg-config \
+-          zlib1g-dev \
+-          bindgen
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      run: |
+-        ccache --version
+-        meson setup build \
+-          -Dauto_features=enabled \
+-          -Dgraphite=enabled \
+-          -Doptimization=2 \
+-          -Dfontations=enabled \
+-          -Dharfrust=enabled \
+-          -Dgpu_demo=disabled
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: RUST_BACKTRACE=1 meson test --print-errorlogs -Cbuild
+diff --git a/.github/workflows/sanitizers.yml b/.github/workflows/sanitizers.yml
+deleted file mode 100644
+index f5380a7e9..000000000
+--- a/.github/workflows/sanitizers.yml
++++ /dev/null
+@@ -1,79 +0,0 @@
+-name: sanitizers
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-    name: ${{ matrix.name }}
+-    env:
+-      CC: clang
+-      CXX: clang++
+-      ASAN_OPTIONS: log_path=stderr:halt_on_error=1:abort_on_error=1
+-      UBSAN_OPTIONS: log_path=stderr:halt_on_error=1:abort_on_error=1:print_stacktrace=1
+-      TSAN_OPTIONS: log_path=stderr:halt_on_error=1:abort_on_error=1
+-      MSAN_OPTIONS: log_path=stderr:halt_on_error=1:abort_on_error=1:print_stacktrace=1
+-    strategy:
+-      fail-fast: false
+-      matrix:
+-        include:
+-          - name: asan-ubsan
+-            SANITIZE: address,undefined
+-          - name: tsan
+-            SANITIZE: thread
+-          - name: msan
+-            SANITIZE: memory
+-            MESON_ARGS: >-
+-              -Dglib=disabled
+-              -Dgobject=disabled
+-              -Dcairo=disabled
+-              -Dfreetype=disabled
+-              -Dicu=disabled
+-              -Dzlib=disabled
+-              -Dpng=disabled
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-    - name: Install Dependencies
+-      run: |
+-        sudo apt-get update
+-        sudo apt install -y \
+-          clang \
+-          lld \
+-          binutils \
+-          pkg-config \
+-          libfreetype6-dev \
+-          libglib2.0-dev \
+-          libcairo2-dev \
+-          libicu-dev \
+-          libgraphite2-dev
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      run: |
+-        ccache --version
+-        meson setup build \
+-          --default-library=static \
+-          --buildtype=debugoptimized \
+-          --wrap-mode=nodownload \
+-          -Db_sanitize=${{ matrix.SANITIZE }} \
+-          -Dexperimental_api=true \
+-          ${{ matrix.MESON_ARGS }}
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test -Cbuild -t 10 --print-errorlogs
+diff --git a/.github/workflows/scorecard.yml b/.github/workflows/scorecard.yml
+deleted file mode 100644
+index 4e73f440d..000000000
+--- a/.github/workflows/scorecard.yml
++++ /dev/null
+@@ -1,64 +0,0 @@
+-# This workflow uses actions that are not certified by GitHub. They are provided
+-# by a third-party and are governed by separate terms of service, privacy
+-# policy, and support documentation.
+-
+-name: Scorecard supply-chain security
+-on:
+-  # For Branch-Protection check. Only the default branch is supported. See
+-  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#branch-protection
+-  branch_protection_rule:
+-  # To guarantee Maintained check is occasionally updated. See
+-  # https://github.com/ossf/scorecard/blob/main/docs/checks.md#maintained
+-  schedule:
+-    - cron: '19 14 * * 6'
+-  push:
+-    branches: [ "main" ]
+-
+-# Declare default permissions as read only.
+-permissions: read-all
+-
+-jobs:
+-  analysis:
+-    name: Scorecard analysis
+-    runs-on: ubuntu-latest
+-    permissions:
+-      # Needed to upload the results to code-scanning dashboard.
+-      security-events: write
+-      # Needed to publish results and get a badge (see publish_results below).
+-      id-token: write
+-
+-    steps:
+-      - name: "Checkout code"
+-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-        with:
+-          persist-credentials: false
+-
+-      - name: "Run analysis"
+-        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+-        with:
+-          results_file: results.sarif
+-          results_format: sarif
+-          # (Optional) Fine-grained PAT token. Uncomment the `repo_token` line below if:
+-          # you want to enable the full Branch-Protection check on a *public* repository
+-          # To create the PAT, follow the steps in https://github.com/ossf/scorecard-action#authentication-with-fine-grained-pat-optional.
+-          # repo_token: ${{ secrets.SCORECARD_TOKEN }}
+-
+-          # - Publish results to OpenSSF REST API for easy access by consumers
+-          # - Allows the repository to include the Scorecard badge.
+-          # - See https://github.com/ossf/scorecard-action#publishing-results.
+-          publish_results: true
+-
+-      # Upload the results as artifacts (optional). Commenting out will disable uploads of run results in SARIF
+-      # format to the repository Actions tab.
+-      - name: "Upload artifact"
+-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+-        with:
+-          name: SARIF file
+-          path: results.sarif
+-          retention-days: 5
+-
+-      # Upload the results to GitHub's code scanning dashboard.
+-      - name: "Upload to code-scanning"
+-        uses: github/codeql-action/upload-sarif@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+-        with:
+-          sarif_file: results.sarif
+diff --git a/.github/workflows/valgrind.yml b/.github/workflows/valgrind.yml
+deleted file mode 100644
+index d02f16893..000000000
+--- a/.github/workflows/valgrind.yml
++++ /dev/null
+@@ -1,44 +0,0 @@
+-name: valgrind
+-
+-on:
+-  push:
+-    branches: [ main ]
+-  pull_request:
+-    branches: [ main ]
+-
+-permissions:
+-  contents: read
+-
+-jobs:
+-  build:
+-    runs-on: ubuntu-24.04
+-
+-    steps:
+-    - name: Checkout
+-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+-    - name: Setup Ccache
+-      uses: hendrikmuhs/ccache-action@d62db5f07c26379fc4b4e0916f098a92573c3b03 # v1.2.23
+-    - name: Install Dependencies
+-      run: |
+-        sudo apt-get update
+-        sudo apt install -y \
+-          valgrind \
+-          binutils \
+-          pkg-config \
+-          libfreetype6-dev \
+-          libglib2.0-dev \
+-          libcairo2-dev \
+-          libicu-dev \
+-          libgraphite2-dev
+-    - name: Setup Python
+-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+-      with:
+-        python-version: '3.12'
+-    - name: Install Python Dependencies
+-      run: pip3 install -r .ci/requirements.txt --require-hashes
+-    - name: Setup Meson
+-      run:  meson setup build --buildtype=debugoptimized
+-    - name: Build
+-      run: meson compile -Cbuild
+-    - name: Test
+-      run: meson test -Cbuild -t 10 --no-suite=slow --wrap='valgrind --leak-check=full --error-exitcode=1' --print-errorlogs
+diff --git a/lwjgl_linux_arm32.cross b/lwjgl_linux_arm32.cross
+new file mode 100644
+index 000000000..c9e39c229
+--- /dev/null
++++ b/lwjgl_linux_arm32.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'arm'
++cpu = 'armhf'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/arm-linux-gnueabihf-gcc-12'
++cpp = '/usr/bin/arm-linux-gnueabihf-g++-12'
++ar = '/usr/bin/arm-linux-gnueabihf-gcc-ar-12'
++strip = '/usr/bin/arm-linux-gnueabihf-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_arm64.cross b/lwjgl_linux_arm64.cross
+new file mode 100644
+index 000000000..0d34e5d72
+--- /dev/null
++++ b/lwjgl_linux_arm64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'aarch64'
++cpu = 'arm64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/aarch64-linux-gnu-gcc-12'
++cpp = '/usr/bin/aarch64-linux-gnu-g++-12'
++ar = '/usr/bin/aarch64-linux-gnu-gcc-ar-12'
++strip = '/usr/bin/aarch64-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_ppc64le.cross b/lwjgl_linux_ppc64le.cross
+new file mode 100644
+index 000000000..11d1ed678
+--- /dev/null
++++ b/lwjgl_linux_ppc64le.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'ppc64'
++cpu = 'ppc64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/powerpc64le-linux-gnu-gcc-12'
++cpp = '/usr/bin/powerpc64le-linux-gnu-g++-12'
++ar = '/usr/bin/powerpc64le-linux-gnu-gcc-ar-12'
++strip = '/usr/bin/powerpc64le-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_linux_riscv64.cross b/lwjgl_linux_riscv64.cross
+new file mode 100644
+index 000000000..196fb434c
+--- /dev/null
++++ b/lwjgl_linux_riscv64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'linux'
++cpu_family = 'riscv64'
++cpu = 'riscv64'
++endian = 'little'
++
++[binaries]
++c = '/usr/bin/riscv64-linux-gnu-gcc-14'
++cpp = '/usr/bin/riscv64-linux-gnu-g++-14'
++ar = '/usr/bin/riscv64-linux-gnu-gcc-ar-14'
++strip = '/usr/bin/riscv64-linux-gnu-strip'
++pkgconfig = '/usr/bin/pkg-config'
+\ No newline at end of file
+diff --git a/lwjgl_macos_arm64.cross b/lwjgl_macos_arm64.cross
+new file mode 100644
+index 000000000..9910546f9
+--- /dev/null
++++ b/lwjgl_macos_arm64.cross
+@@ -0,0 +1,21 @@
++[host_machine]
++system = 'darwin'
++cpu_family = 'aarch64'
++cpu = 'arm64'
++endian = 'little'
++
++[binaries]
++c = ['clang']
++cpp = ['clang++']
++objc = ['clang']
++objcpp = ['clang++']
++
++[built-in options]
++c_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++cpp_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objc_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objcpp_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++c_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++cpp_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objc_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
++objcpp_link_args = ['-target', 'aarch64-apple-darwin', '-arch', 'arm64']
+\ No newline at end of file
+diff --git a/lwjgl_macos_x64.cross b/lwjgl_macos_x64.cross
+new file mode 100644
+index 000000000..4ff6a1a09
+--- /dev/null
++++ b/lwjgl_macos_x64.cross
+@@ -0,0 +1,21 @@
++[host_machine]
++system = 'darwin'
++cpu_family = 'x86_64'
++cpu = 'x64'
++endian = 'little'
++
++[binaries]
++c = ['clang']
++cpp = ['clang++']
++objc = ['clang']
++objcpp = ['clang++']
++
++[built-in options]
++c_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++cpp_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objc_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objcpp_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++c_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++cpp_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objc_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
++objcpp_link_args = ['-target', 'x64-apple-darwin', '-arch', 'x86_64']
+\ No newline at end of file
+diff --git a/lwjgl_windows_arm64.cross b/lwjgl_windows_arm64.cross
+new file mode 100644
+index 000000000..e7e5939aa
+--- /dev/null
++++ b/lwjgl_windows_arm64.cross
+@@ -0,0 +1,12 @@
++[host_machine]
++system = 'windows'
++cpu_family = 'aarch64'
++cpu = 'armv8'
++endian = 'little'
++
++[binaries]
++c = 'cl'
++cpp = 'cl'
++fc = 'false'
++ar = 'lib'
++windres = 'rc'
+\ No newline at end of file
+diff --git a/src/meson.build b/src/meson.build
+index aa0fc5a0d..6b44c9950 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -640,9 +640,12 @@ version = '0.@0@.0'.format(hb_version_int)
+ 
+ extra_hb_cpp_args = []
+ if cpp_is_microsoft_compiler
+-  if get_option('default_library') != 'static'
++  # Commenting this out does not change anything for the standalone build.
++  # However, it is necessary for the LWJGL-CI/freetype build, where harfbuzz
++  # is linked statically, but we still need to export the API symbols.
++  #if get_option('default_library') != 'static'
+     extra_hb_cpp_args += '-DHB_DLL_EXPORT'
+-  endif
++  #endif
+   hb_so_version = ''
+ else
+   hb_so_version = '0'
+diff --git a/subprojects/freetype2.wrap b/subprojects/freetype2.wrap
+index 7b577bef2..bdd77ae89 100644
+--- a/subprojects/freetype2.wrap
++++ b/subprojects/freetype2.wrap
+@@ -1,10 +1,8 @@
+-[wrap-file]
+-directory = freetype-2.14.2
+-source_url = https://download.savannah.gnu.org/releases/freetype/freetype-2.14.2.tar.xz
+-source_fallback_url = https://wrapdb.mesonbuild.com/v2/freetype2_2.14.2-1/get_source/freetype-2.14.2.tar.xz
+-source_filename = freetype-2.14.2.tar.xz
+-source_hash = 4b62dcab4c920a1a860369933221814362e699e26f55792516d671e6ff55b5e1
+-wrapdb_version = 2.14.2-1
++[wrap-git]
++directory=freetype
++url=https://github.com/LWJGL-CI/freetype.git
++revision=HEAD
+ 
+ [provide]
+-dependency_names = freetype2
++#dependency_names = freetype2
++freetype2 = freetype_dep
+\ No newline at end of file
