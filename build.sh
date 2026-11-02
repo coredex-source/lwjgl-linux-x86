@@ -10,18 +10,25 @@ if [[ -z "${LWJGL_X86_CONTAINER:-}" ]]; then
     fi
     user=()
     [[ "$ENGINE" == docker ]] && user=(--user "$(id -u):$(id -g)") # rootless podman already maps root to us
-    exec $ENGINE run --rm "${user[@]}" -v "$ROOT:/work:Z" -w /work -e HOME=/work/.home "$IMAGE" /work/build.sh "$@"
+    exec $ENGINE run --rm "${user[@]}" -v "$ROOT:/work:Z" -w /work -e HOME=/work/.home \
+        -e LWJGL_X86_FLAVOUR="${LWJGL_X86_FLAVOUR:-sse2}" "$IMAGE" /work/build.sh "$@"
 fi
 
+FLAVOUR=${LWJGL_X86_FLAVOUR:-sse2}
+case "$FLAVOUR" in
+    sse2) SUFFIX=""; SIMD_FLAGS="-msse2 -mfpmath=sse" ;;
+    i686) SUFFIX="-i686"; SIMD_FLAGS="-march=i686 -mtune=generic -mno-sse -mno-sse2 -mfpmath=387" ;;
+    *) echo "unknown LWJGL_X86_FLAVOUR '$FLAVOUR' (sse2, i686)" >&2; exit 1 ;;
+esac
 SRC=/work/src
-OUT=/work/out/linux-x86
-STAGE=/work/out/jar
-BUILD=/work/build-x86
+OUT=/work/out/linux-x86$SUFFIX
+STAGE=/work/out/jar$SUFFIX
+BUILD=/work/build-x86$SUFFIX
 [[ -d "$SRC/lwjgl3" ]] || { echo "src/ is missing: run ./fetch.sh first" >&2; exit 1; }
 mkdir -p "$OUT" "$BUILD" "$HOME"
 JOBS=$(nproc)
 
-ARCH_FLAGS="-m32 -msse2 -mfpmath=sse"
+ARCH_FLAGS="-m32 $SIMD_FLAGS"
 NOFORTIFY="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
 HIDE="libstdc++.a:libgcc.a:libgcc_eh.a:libsupc++.a"
 CXX_LINK="-static-libstdc++ -static-libgcc -Wl,--exclude-libs,$HIDE"
@@ -49,8 +56,8 @@ strip = 'strip'
 pkg-config = 'pkg-config'
 
 [built-in options]
-c_args = ['-msse2', '-mfpmath=sse', '-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=0']
-cpp_args = ['-msse2', '-mfpmath=sse', '-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=0']
+c_args = [$(printf "'%s', " $SIMD_FLAGS)'-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=0']
+cpp_args = [$(printf "'%s', " $SIMD_FLAGS)'-U_FORTIFY_SOURCE', '-D_FORTIFY_SOURCE=0']
 c_link_args = ['-static-libgcc']
 cpp_link_args = ['-static-libstdc++', '-static-libgcc', '-Wl,--exclude-libs,$HIDE']
 
@@ -84,7 +91,9 @@ step_openal() {
     "${CMAKE[@]}" -S "$SRC/openal-soft" -B "$BUILD/openal" -DALSOFT_REQUIRE_RTKIT=ON -DALSOFT_REQUIRE_ALSA=ON \
         -DALSOFT_REQUIRE_OSS=ON -DALSOFT_REQUIRE_PORTAUDIO=ON -DALSOFT_REQUIRE_PULSEAUDIO=ON -DALSOFT_REQUIRE_JACK=ON \
         -DALSOFT_REQUIRE_PIPEWIRE=ON -DALSOFT_EMBED_HRTF_DATA=YES -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF \
-        -DALSOFT_TESTS=OFF -DALSOFT_INSTALL=OFF
+        -DALSOFT_TESTS=OFF -DALSOFT_INSTALL=OFF \
+        $([[ $FLAVOUR == sse2 ]] && echo -DALSOFT_ENABLE_SSE2_CODEGEN=ON || echo -DALSOFT_ENABLE_SSE2_CODEGEN=OFF \
+            -DALSOFT_CPUEXT_SSE=OFF -DALSOFT_CPUEXT_SSE2=OFF -DALSOFT_CPUEXT_SSE3=OFF -DALSOFT_CPUEXT_SSE4_1=OFF)
     cmake --build "$BUILD/openal" -j "$JOBS"
     install_lib "$BUILD/openal/libopenal.so" libopenal.so openal
 }
@@ -145,7 +154,13 @@ step_lwjgl() {
     cp "$BUILD/libffi.a" bin/libs/native/linux/x86/org/lwjgl/libffi.a
     rm -f bin/classes/templates/touch.txt bin/classes/generator/generated-touch.txt
     ant compile-templates generate
-    ant -Dbuild.offline=true $off compile-native
+    rm -rf bin/linux/x86
+    find bin/libs/native/linux/x86/org/lwjgl -name '*.so' -delete 2>/dev/null || true
+    if [[ $FLAVOUR != sse2 ]]; then
+        sed -i "s/-m32 -mfpmath=sse -msse -msse2/-m32 $SIMD_FLAGS/" config/linux/build.xml
+    fi
+    ant -Dbuild.offline=true $off compile-native || { git checkout -- config/linux/build.xml; return 1; }
+    git checkout -- config/linux/build.xml
     local m n
     for m in "" opengl stb tinyfd; do
         n=lwjgl${m:+_$m}
@@ -172,14 +187,17 @@ step_package() {
     tar -xzOf "$SRC/libffi-3.5.0.tar.gz" libffi-3.5.0/LICENSE > "$lic/libffi.txt"
     cp /work/README.md "$lic/SOURCES.md"
     rm -rf "$STAGE/META-INF" && mkdir -p "$STAGE/META-INF/licenses/lwjgl-linux-x86" && cp "$lic"/* "$STAGE/META-INF/licenses/lwjgl-linux-x86/"
-    rm -f /work/out/lwjgl-natives-linux-x86.jar
-    (cd "$STAGE" && jar --create --file /work/out/lwjgl-natives-linux-x86.jar --no-manifest linux META-INF)
-    tar -czf /work/out/lwjgl-3.4.1-linux-x86.tar.gz -C /work/out linux-x86 licenses
-    echo ">>> out/lwjgl-natives-linux-x86.jar, out/lwjgl-3.4.1-linux-x86.tar.gz"
+    rm -f /work/out/lwjgl-natives-linux-x86$SUFFIX.jar
+    (cd "$STAGE" && jar --create --file /work/out/lwjgl-natives-linux-x86$SUFFIX.jar --no-manifest linux META-INF)
+    tar -czf /work/out/lwjgl-3.4.1-linux-x86$SUFFIX.tar.gz -C /work/out "linux-x86$SUFFIX" licenses
+    echo ">>> out/lwjgl-natives-linux-x86$SUFFIX.jar, out/lwjgl-3.4.1-linux-x86$SUFFIX.tar.gz"
 }
 
 steps=("$@")
-[[ ${#steps[@]} -eq 0 ]] && steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package)
+if [[ ${#steps[@]} -eq 0 ]]; then
+    steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package)
+    [[ $FLAVOUR == i686 ]] && steps=(glfw openal freetype jemalloc lwjgl package)
+fi
 for s in "${steps[@]}"; do
     echo "=================== $s"
     "step_$s"

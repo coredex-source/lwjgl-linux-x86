@@ -5,7 +5,7 @@ natives, so on a 32-bit JVM the game dies loading `liblwjgl.so`.
 
 ## Using them
 
-Download `lwjgl-3.4.1-linux-x86.tar.gz` from Releases, unpack it, and add one JVM argument
+Download `lwjgl-3.4.1-linux-x86.tar.gz or lwjgl-3.4.1-linux-x86-i686.tar.gz depending on if your CPU supports SSE or not.` from Releases, unpack it, and add one JVM argument
 
 ```
 -Dorg.lwjgl.librarypath=/path/to/linux-x86
@@ -24,6 +24,7 @@ Needs git, curl, python3 and podman (or docker: `CONTAINER_ENGINE=docker`).
 ```sh
 ./fetch.sh
 ./build.sh
+LWJGL_X86_FLAVOUR=i686 ./build.sh    # For i686/No SSE builds
 ```
 
 Output goes to `out`
