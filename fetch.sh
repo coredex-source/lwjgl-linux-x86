@@ -52,11 +52,25 @@ if [[ ! -f "$SRC/shaderc/.deps-synced" ]]; then
     echo "+ shaderc dependencies"
 fi
 
-ffi="$SRC/libffi-3.5.0.tar.gz"
-if [[ ! -f "$ffi" ]]; then
-    curl -fsSL -o "$ffi.part" https://github.com/libffi/libffi/releases/download/v3.5.0/libffi-3.5.0.tar.gz
-    echo "8c72678628a5dd8782f08ad421d5a441e42c1c5c1b33e0bc211cbfcf1f3b3978  $ffi.part" | sha256sum -c - >/dev/null
-    mv "$ffi.part" "$ffi"
-    echo "+ libffi 3.5.0"
-fi
+tarball() {
+    local url=$1 sum=$2 file="$SRC/$(basename "$1")"
+    [[ -f "$file" ]] && return
+    curl -fsSL --retry 3 --retry-all-errors -o "$file.part" "$url"
+    echo "$sum  $file.part" | "sha$(( ${#sum} * 4 ))sum" -c - >/dev/null
+    mv "$file.part" "$file"
+    echo "+ $(basename "$file")"
+}
+
+tarball https://github.com/libffi/libffi/releases/download/v3.5.0/libffi-3.5.0.tar.gz \
+        8c72678628a5dd8782f08ad421d5a441e42c1c5c1b33e0bc211cbfcf1f3b3978
+
+GNU=https://gcc.gnu.org/pub/gcc
+tarball $GNU/releases/gcc-12.2.0/gcc-12.2.0.tar.xz \
+        e9e857bd81bf7a370307d6848c81b2f5403db8c7b5207f54bce3f3faac3bde63445684092c2bc1a2427cddb6f7746496d9fbbef05fbbd77f2810b2998f1f9173
+tarball $GNU/infrastructure/gmp-6.2.1.tar.bz2 \
+        8904334a3bcc5c896ececabc75cda9dec642e401fb5397c4992c4fabea5e962c9ce8bd44e8e4233c34e55c8010cc28db0545f5f750cbdbb5f00af538dc763be9
+tarball $GNU/infrastructure/mpfr-4.1.0.tar.bz2 \
+        410208ee0d48474c1c10d3d4a59decd2dfa187064183b09358ec4c4666e34d74383128436b404123b831e585d81a9176b24c7ced9d913967c5fce35d4040a0b4
+tarball $GNU/infrastructure/mpc-1.2.1.tar.gz \
+        3279f813ab37f47fdcc800e4ac5f306417d07f539593ca715876e43e04896e1d5bceccfb288ef2908a3f24b760747d0dbd0392a24b9b341bc3e12082e5c836ee
 echo "sources ready in src/"

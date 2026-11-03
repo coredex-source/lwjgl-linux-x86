@@ -5,7 +5,15 @@ natives, so on a 32-bit JVM the game dies loading `liblwjgl.so`.
 
 ## Using them
 
-Download `lwjgl-3.4.1-linux-x86.tar.gz or lwjgl-3.4.1-linux-x86-i686.tar.gz depending on if your CPU supports SSE or not.` from Releases, unpack it, and add one JVM argument
+Download the tarball for your CPU from Releases:
+
+| Tarball                              | CPU                                                                   |
+|--------------------------------------|-----------------------------------------------------------------------|
+| `lwjgl-3.4.1-linux-x86.tar.gz`       | SSE2 (Pentium 4, Athlon 64 and newer)                                 |
+| `lwjgl-3.4.1-linux-x86-i686.tar.gz`  | i686 without SSE2 (Pentium Pro/II/III, Athlon/Athlon XP)              |
+| `lwjgl-3.4.1-linux-x86-i586.tar.gz`  | i586, no CMOV (Pentium/MMX, K6, VIA C3, Vortex86, Geode, Quark)       |
+
+Unpack it and add one JVM argument (the directory is `linux-x86`, `linux-x86-i686` or `linux-x86-i586`)
 
 ```
 -Dorg.lwjgl.librarypath=/path/to/linux-x86
@@ -25,7 +33,10 @@ Needs git, curl, python3 and podman (or docker: `CONTAINER_ENGINE=docker`).
 ./fetch.sh
 ./build.sh
 LWJGL_X86_FLAVOUR=i686 ./build.sh    # For i686/No SSE builds
+LWJGL_X86_FLAVOUR=i586 ./build.sh    # For i586/No CMOV builds
 ```
+
+Note: The i586 build compiles GCC from source in `build-x86-i586/toolchain`, with an i586 runtime and no CET, and builds everything with that.
 
 Output goes to `out`
 

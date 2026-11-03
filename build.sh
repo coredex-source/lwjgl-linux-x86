@@ -14,11 +14,15 @@ if [[ -z "${LWJGL_X86_CONTAINER:-}" ]]; then
         -e LWJGL_X86_FLAVOUR="${LWJGL_X86_FLAVOUR:-sse2}" "$IMAGE" /work/build.sh "$@"
 fi
 
+NO_SSE='%[xy]?mm[0-9]|(^| )(ldmxcsr|stmxcsr|[lms]fence|prefetch[a-z0-9]*|movnti|clflush|f?emms|fisttp[a-z]*)( |$)'
+NO_P6='(^| )(cmov[a-z]*|fcmov[a-z]*|fu?comip?|nop[lw]|endbr32)( |$)'
+NO_ISA_OK='__x86_rd(rand|seed)'
 FLAVOUR=${LWJGL_X86_FLAVOUR:-sse2}
 case "$FLAVOUR" in
-    sse2) SUFFIX=""; SIMD_FLAGS="-msse2 -mfpmath=sse" ;;
-    i686) SUFFIX="-i686"; SIMD_FLAGS="-march=i686 -mtune=generic -mno-sse -mno-sse2 -mfpmath=387" ;;
-    *) echo "unknown LWJGL_X86_FLAVOUR '$FLAVOUR' (sse2, i686)" >&2; exit 1 ;;
+    sse2) SUFFIX="";      NO_ISA="";              SIMD_FLAGS="-msse2 -mfpmath=sse" ;;
+    i686) SUFFIX="-i686"; NO_ISA="$NO_SSE";       SIMD_FLAGS="-march=i686 -mtune=generic -mno-sse -mno-sse2 -mfpmath=387" ;;
+    i586) SUFFIX="-i586"; NO_ISA="$NO_SSE|$NO_P6"; SIMD_FLAGS="-march=i586 -mtune=generic -mno-sse -mno-sse2 -mfpmath=387" ;;
+    *) echo "unknown LWJGL_X86_FLAVOUR '$FLAVOUR' (sse2, i686, i586)" >&2; exit 1 ;;
 esac
 SRC=/work/src
 OUT=/work/out/linux-x86$SUFFIX
@@ -27,6 +31,10 @@ BUILD=/work/build-x86$SUFFIX
 [[ -d "$SRC/lwjgl3" ]] || { echo "src/ is missing: run ./fetch.sh first" >&2; exit 1; }
 mkdir -p "$OUT" "$BUILD" "$HOME"
 JOBS=$(nproc)
+
+GCC_VER=12.2.0
+TOOLCHAIN=$BUILD/toolchain
+[[ $FLAVOUR == i586 ]] && export PATH="$TOOLCHAIN/bin:$PATH"
 
 ARCH_FLAGS="-m32 $SIMD_FLAGS"
 NOFORTIFY="-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0"
@@ -73,11 +81,53 @@ EOF
 
 CMAKE=(cmake -G Ninja -DCMAKE_TOOLCHAIN_FILE="$BUILD/toolchain.cmake" -DCMAKE_BUILD_TYPE=Release)
 
+check_lib() {
+    if readelf -d "$1" | grep -q TEXTREL; then
+        echo "!!! $(basename "$1") has text relocations" >&2; return 1
+    fi
+    [[ -n "$NO_ISA" ]] || return 0
+    local bad
+    bad=$(objdump -d --no-show-raw-insn "$1" | awk -F'\t' -v bad="$NO_ISA" -v ok="$NO_ISA_OK" '
+        /^[0-9a-f]+ <.*>:$/ && !/ <\.L/ { fn = $0; sub(/^[0-9a-f]+ /, "", fn); skip = fn ~ ok; next }
+        !skip && /^ *[0-9a-f]+:\t/ && match($2, bad) { m = substr($2, RSTART, RLENGTH); gsub(/ /, "", m); n[m " in " fn]++ }
+        END { for (k in n) print n[k], k }' | c++filt | sort -rn)
+    [[ -z "$bad" ]] && return 0
+    echo "!!! $(basename "$1") has instructions $FLAVOUR CPUs don't, $(wc -l <<< "$bad") (instruction, function) pairs:" >&2
+    head -20 <<< "$bad" >&2
+    return 1
+}
+
 install_lib() {
+    check_lib "$1"
     strip "$1" -o "$OUT/$2"
     mkdir -p "$STAGE/linux/x86/org/lwjgl/$3"
     cp "$OUT/$2" "$STAGE/linux/x86/org/lwjgl/$3/$2"
     echo ">>> $2: $(file -b "$OUT/$2" | cut -d, -f1-2)"
+}
+
+step_toolchain() {
+    local stamp="gcc-$GCC_VER $(declare -f step_toolchain | sha256sum | cut -c1-16)"
+    if [[ "$(cat "$TOOLCHAIN/.stamp" 2>/dev/null)" == "$stamp" ]]; then
+        echo ">>> gcc $GCC_VER (i586) up to date"; return
+    fi
+    local src="$BUILD/gcc-src" obj="$BUILD/gcc-obj" p
+    find "$BUILD" -mindepth 1 -maxdepth 1 ! -name toolchain.cmake ! -name cross.meson -exec rm -rf {} +
+    mkdir -p "$src" "$obj"
+    tar -xJf "$SRC/gcc-$GCC_VER.tar.xz" -C "$src" --strip-components=1
+    for p in gmp-6.2.1.tar.bz2 mpfr-4.1.0.tar.bz2 mpc-1.2.1.tar.gz; do
+        mkdir "$src/${p%%-*}" && tar -xf "$SRC/$p" -C "$src/${p%%-*}" --strip-components=1
+    done
+    (cd "$obj" && CC=/usr/bin/gcc CXX=/usr/bin/g++ CFLAGS=-O2 CXXFLAGS=-O2 "$src/configure" --prefix="$TOOLCHAIN" \
+        --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --enable-languages=c,c++ \
+        --enable-multilib --with-multilib-list=m32,m64 --enable-multiarch --with-arch-32=i586 --with-tune=generic \
+        --disable-cet --disable-bootstrap --disable-nls --disable-werror --disable-libsanitizer --disable-libgomp \
+        --disable-libitm --disable-libssp --disable-libcc1 --disable-libstdcxx-pch --without-isl \
+        --enable-linker-build-id --with-linker-hash-style=gnu \
+        CFLAGS_FOR_TARGET="-O2 -fPIC" CXXFLAGS_FOR_TARGET="-O2 -fPIC" \
+        && make -j "$JOBS" && make install-strip)
+    rm -rf "$src" "$obj"
+    echo "$stamp" > "$TOOLCHAIN/.stamp"
+    echo ">>> gcc $GCC_VER (i586) in $TOOLCHAIN"
 }
 
 step_glfw() {
@@ -194,10 +244,8 @@ step_package() {
 }
 
 steps=("$@")
-if [[ ${#steps[@]} -eq 0 ]]; then
-    steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package)
-    [[ $FLAVOUR == i686 ]] && steps=(glfw openal freetype jemalloc lwjgl package)
-fi
+[[ ${#steps[@]} -eq 0 ]] && steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package)
+[[ $FLAVOUR == i586 && ${steps[0]} != toolchain ]] && steps=(toolchain "${steps[@]}")
 for s in "${steps[@]}"; do
     echo "=================== $s"
     "step_$s"

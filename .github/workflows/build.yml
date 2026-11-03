@@ -29,6 +29,9 @@ jobs:
       - name: Build natives, i686 flavour (no SSE/SSE2)
         run: LWJGL_X86_FLAVOUR=i686 ./build.sh
 
+      - name: Build natives, i586 flavour (no CMOV/SSE; builds GCC with an i586 runtime first)
+        run: LWJGL_X86_FLAVOUR=i586 ./build.sh
+
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -36,7 +39,8 @@ jobs:
           TAG: lwjgl-3.4.1-linux-x86-build.${{ github.run_number }}
         run: |
           files=(out/lwjgl-natives-linux-x86.jar out/lwjgl-3.4.1-linux-x86.tar.gz
-                 out/lwjgl-natives-linux-x86-i686.jar out/lwjgl-3.4.1-linux-x86-i686.tar.gz)
+                 out/lwjgl-natives-linux-x86-i686.jar out/lwjgl-3.4.1-linux-x86-i686.tar.gz
+                 out/lwjgl-natives-linux-x86-i586.jar out/lwjgl-3.4.1-linux-x86-i586.tar.gz)
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "${files[@]}" --clobber
           else
