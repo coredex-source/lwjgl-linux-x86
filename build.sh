@@ -11,7 +11,8 @@ if [[ -z "${LWJGL_X86_CONTAINER:-}" ]]; then
     user=()
     [[ "$ENGINE" == docker ]] && user=(--user "$(id -u):$(id -g)") # rootless podman already maps root to us
     exec $ENGINE run --rm "${user[@]}" -v "$ROOT:/work:Z" -w /work -e HOME=/work/.home \
-        -e LWJGL_X86_FLAVOUR="${LWJGL_X86_FLAVOUR:-sse2}" "$IMAGE" /work/build.sh "$@"
+        -e LWJGL_X86_FLAVOUR="${LWJGL_X86_FLAVOUR:-sse2}" -e LWJGL_VERSION="${LWJGL_VERSION:-3.4.1}" "$IMAGE" \
+        /work/build.sh "$@"
 fi
 
 NO_SSE='%[xy]?mm[0-9]|(^| )(ldmxcsr|stmxcsr|[lms]fence|prefetch[a-z0-9]*|movnti|clflush|f?emms|fisttp[a-z]*)( |$)'
@@ -24,16 +25,23 @@ case "$FLAVOUR" in
     i586) SUFFIX="-i586"; NO_ISA="$NO_SSE|$NO_P6"; SIMD_FLAGS="-march=i586 -mtune=generic -mno-sse -mno-sse2 -mfpmath=387" ;;
     *) echo "unknown LWJGL_X86_FLAVOUR '$FLAVOUR' (sse2, i686, i586)" >&2; exit 1 ;;
 esac
-SRC=/work/src
-OUT=/work/out/linux-x86$SUFFIX
-STAGE=/work/out/jar$SUFFIX
-BUILD=/work/build-x86$SUFFIX
-[[ -d "$SRC/lwjgl3" ]] || { echo "src/ is missing: run ./fetch.sh first" >&2; exit 1; }
+VERSION=${LWJGL_VERSION:-3.4.1}
+TARBALLS=/work/src
+LIBFFI=3.5.0
+[[ $VERSION == 3.4.1 ]] || LIBFFI=3.8.0
+case "$VERSION" in
+    3.4.1) SRC=/work/src; OUT=/work/out/linux-x86$SUFFIX; STAGE=/work/out/jar$SUFFIX; BUILD=/work/build-x86$SUFFIX ;;
+    3.4.3) SRC=/work/src-$VERSION; OUT=/work/out/$VERSION/linux-x86$SUFFIX; STAGE=/work/out/$VERSION/jar$SUFFIX
+           BUILD=/work/build-$VERSION-x86$SUFFIX ;;
+    *) echo "unknown LWJGL_VERSION '$VERSION' (3.4.1, 3.4.3)" >&2; exit 1 ;;
+esac
+[[ -d "$SRC/lwjgl3" ]] || { echo "${SRC#/work/}/ is missing: run LWJGL_VERSION=$VERSION ./fetch.sh first" >&2; exit 1; }
 mkdir -p "$OUT" "$BUILD" "$HOME"
 JOBS=$(nproc)
 
 GCC_VER=12.2.0
-TOOLCHAIN=$BUILD/toolchain
+TOOLCHAIN=/work/build-x86$SUFFIX/toolchain
+[[ $FLAVOUR == i586 && $SRC != "$TARBALLS" ]] && for t in "$TARBALLS"/{gcc,gmp,mpfr,mpc}-*.tar.*; do ln -sf "$t" "$SRC/"; done
 [[ $FLAVOUR == i586 ]] && export PATH="$TOOLCHAIN/bin:$PATH"
 
 ARCH_FLAGS="-m32 $SIMD_FLAGS"
@@ -137,6 +145,15 @@ step_glfw() {
     install_lib "$BUILD/glfw/src/libglfw.so" libglfw.so glfw
 }
 
+step_sdl() {
+    "${CMAKE[@]}" -S "$SRC/sdl" -B "$BUILD/sdl" -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF \
+        -DSDL_INSTALL=OFF -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+        -DCMAKE_C_FLAGS="$ARCH_FLAGS $NOFORTIFY -std=c99" \
+        $([[ $FLAVOUR == sse2 ]] || echo -DSDL_ASSEMBLY=OFF)
+    cmake --build "$BUILD/sdl" -j "$JOBS"
+    install_lib "$(readlink -f "$BUILD/sdl/libSDL3.so")" libSDL3.so sdl
+}
+
 step_openal() {
     "${CMAKE[@]}" -S "$SRC/openal-soft" -B "$BUILD/openal" -DALSOFT_REQUIRE_RTKIT=ON -DALSOFT_REQUIRE_ALSA=ON \
         -DALSOFT_REQUIRE_OSS=ON -DALSOFT_REQUIRE_PORTAUDIO=ON -DALSOFT_REQUIRE_PULSEAUDIO=ON -DALSOFT_REQUIRE_JACK=ON \
@@ -184,7 +201,7 @@ step_shaderc() {
 
 step_libffi() {
     rm -rf "$BUILD/libffi" && mkdir "$BUILD/libffi"
-    tar -xzf "$SRC/libffi-3.5.0.tar.gz" -C "$BUILD/libffi" --strip-components=1
+    tar -xzf "$TARBALLS/libffi-$LIBFFI.tar.gz" -C "$BUILD/libffi" --strip-components=1
     (cd "$BUILD/libffi" && CC="gcc $ARCH_FLAGS" CFLAGS="-O3 $NOFORTIFY" ./configure --disable-shared \
         --with-pic --disable-docs --host=i686-linux-gnu --build=x86_64-linux-gnu && make -j "$JOBS")
     cp "$BUILD"/libffi/i686-*-linux-gnu/.libs/libffi.a "$BUILD/libffi.a"
@@ -194,9 +211,10 @@ step_libffi() {
 step_lwjgl() {
     [[ -f "$BUILD/libffi.a" ]] || step_libffi
     export LWJGL_BUILD_ARCH=x86
-    local off=""
+    local off="" vma=vma modules=("" opengl stb tinyfd)
+    [[ $VERSION == 3.4.3 ]] && vma="" && modules+=(vma)
     for b in assimp fmod harfbuzz hwloc ktx llvm lmdb lz4 meshoptimizer msdfgen nanovg nfd nuklear odbc opencl \
-             opengles openxr opus par remotery renderdoc rpmalloc sdl spng tinyexr vma xxhash yoga zstd; do
+             opengles openxr opus par remotery renderdoc rpmalloc sdl spng tinyexr $vma xxhash yoga zstd; do
         off+=" -Dbinding.$b=false"
     done
     cd "$SRC/lwjgl3"
@@ -212,7 +230,7 @@ step_lwjgl() {
     ant -Dbuild.offline=true $off compile-native || { git checkout -- config/linux/build.xml; return 1; }
     git checkout -- config/linux/build.xml
     local m n
-    for m in "" opengl stb tinyfd; do
+    for m in "${modules[@]}"; do
         n=lwjgl${m:+_$m}
         install_lib "bin/libs/native/linux/x86/org/lwjgl/${m:+$m/}lib$n.so" "lib$n.so" "$m"
     done
@@ -220,9 +238,14 @@ step_lwjgl() {
 
 step_package() {
     local lic=/work/out/licenses
+    [[ $VERSION == 3.4.1 ]] || lic=/work/out/$VERSION/licenses
     rm -rf "$lic" && mkdir -p "$lic"
     cp "$SRC/lwjgl3/LICENSE.md"                         "$lic/lwjgl.md"
-    cp "$SRC/glfw/LICENSE.md"                           "$lic/glfw.md"
+    if [[ $VERSION == 3.4.1 ]]; then
+        cp "$SRC/glfw/LICENSE.md"                       "$lic/glfw.md"
+    else
+        cp "$SRC/sdl/LICENSE.txt"                       "$lic/sdl.txt"
+    fi
     cp "$SRC/openal-soft/COPYING"                       "$lic/openal-soft-LGPL-2.0.txt"
     cp "$SRC/freetype/LICENSE.TXT"                      "$lic/freetype.txt"
     cp "$SRC/freetype/docs/FTL.TXT"                     "$lic/freetype-FTL.txt"
@@ -234,17 +257,28 @@ step_package() {
     cp "$SRC/shaderc/third_party/glslang/LICENSE.txt"   "$lic/glslang.txt"
     cp "$SRC/shaderc/third_party/spirv-tools/LICENSE"   "$lic/spirv-tools.txt"
     cp "$SRC/SPIRV-Cross/LICENSE"                       "$lic/spirv-cross.txt"
-    tar -xzOf "$SRC/libffi-3.5.0.tar.gz" libffi-3.5.0/LICENSE > "$lic/libffi.txt"
+    tar -xzOf "$TARBALLS/libffi-$LIBFFI.tar.gz" "libffi-$LIBFFI/LICENSE" > "$lic/libffi.txt"
+    if [[ $VERSION != 3.4.1 ]]; then
+        sed -n '/^\/\/ Copyright/,/^\/\/ THE SOFTWARE/p' "$SRC/lwjgl3/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h" \
+            | sed 's#^// \{0,1\}##' > "$lic/vma.txt"
+    fi
     cp /work/README.md "$lic/SOURCES.md"
     rm -rf "$STAGE/META-INF" && mkdir -p "$STAGE/META-INF/licenses/lwjgl-linux-x86" && cp "$lic"/* "$STAGE/META-INF/licenses/lwjgl-linux-x86/"
-    rm -f /work/out/lwjgl-natives-linux-x86$SUFFIX.jar
-    (cd "$STAGE" && jar --create --file /work/out/lwjgl-natives-linux-x86$SUFFIX.jar --no-manifest linux META-INF)
-    tar -czf /work/out/lwjgl-3.4.1-linux-x86$SUFFIX.tar.gz -C /work/out "linux-x86$SUFFIX" licenses
-    echo ">>> out/lwjgl-natives-linux-x86$SUFFIX.jar, out/lwjgl-3.4.1-linux-x86$SUFFIX.tar.gz"
+    local dir=/work/out
+    [[ $VERSION == 3.4.1 ]] || dir=/work/out/$VERSION
+    rm -f "$dir/lwjgl-natives-linux-x86$SUFFIX.jar"
+    (cd "$STAGE" && jar --create --file "$dir/lwjgl-natives-linux-x86$SUFFIX.jar" --no-manifest linux META-INF)
+    tar -czf "/work/out/lwjgl-$VERSION-linux-x86$SUFFIX.tar.gz" -C "$dir" "linux-x86$SUFFIX" licenses
+    echo ">>> ${dir#/work/}/lwjgl-natives-linux-x86$SUFFIX.jar, out/lwjgl-$VERSION-linux-x86$SUFFIX.tar.gz"
 }
 
 steps=("$@")
-[[ ${#steps[@]} -eq 0 ]] && steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package)
+if [[ ${#steps[@]} -eq 0 ]]; then
+    case "$VERSION" in
+        3.4.1) steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package) ;;
+        *)     steps=(sdl openal freetype jemalloc spvc shaderc lwjgl package) ;;
+    esac
+fi
 [[ $FLAVOUR == i586 && ${steps[0]} != toolchain ]] && steps=(toolchain "${steps[@]}")
 for s in "${steps[@]}"; do
     echo "=================== $s"

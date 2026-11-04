@@ -1,0 +1,550 @@
+From 0c621ce92841b8e1db8ba9f7f2b63b4773ade79c Mon Sep 17 00:00:00 2001
+From: Ioannis Tsakpinis <iotsakp@gmail.com>
+Date: Sun, 12 Jan 2025 18:32:19 +0200
+Subject: [PATCH] LWJGL CI configuration
+
+---
+ .github/workflows/build.yml    |  48 -----
+ .github/workflows/lwjgl.yml    | 383 +++++++++++++++++++++++++++++++++
+ include/SDL3/SDL_intrin.h      |   5 -
+ src/cpuinfo/SDL_cpuinfo.c      |   2 +-
+ src/video/SDL_blit_N.c         |   6 +
+ src/video/x11/SDL_x11xinput2.c |  30 +++
+ 6 files changed, 420 insertions(+), 54 deletions(-)
+ delete mode 100644 .github/workflows/build.yml
+ create mode 100644 .github/workflows/lwjgl.yml
+
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+deleted file mode 100644
+index 09652e0..0000000
+--- a/.github/workflows/build.yml
++++ /dev/null
+@@ -1,48 +0,0 @@
+-name: 'Build (All)'
+-
+-on: [push, pull_request]
+-
+-concurrency:
+-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+-  cancel-in-progress: true
+-
+-jobs:
+-  controller:
+-    name: 'Create test plan'
+-    runs-on: 'ubuntu-latest'
+-    outputs:
+-      platforms-level1: ${{ steps.plan.outputs.platforms-level1 }}
+-      platforms-others: ${{ steps.plan.outputs.platforms-others }}
+-    steps:
+-      - uses: actions/setup-python@main
+-        with:
+-          python-version: 3.x
+-      - uses: actions/checkout@main
+-        with:
+-          sparse-checkout: '.github/workflows/create-test-plan.py'
+-      - name: 'Create plan'
+-        id: plan
+-        run: |
+-          # Adding [sdl-ci-filter GLOB] to the commit message will limit the jobs
+-          # e.g. [sdl-ci-filter msvc-*]
+-          EOF=$(openssl rand -hex 32)
+-          cat >/tmp/commit_message.txt <<$EOF
+-          ${{ github.event.head_commit.message }}
+-          $EOF
+-
+-          python .github/workflows/create-test-plan.py \
+-            --github-variable-prefix platforms \
+-            --github-ci \
+-            --verbose \
+-            ${{ (github.repository_owner != 'libsdl-org' && '--no-artifact') || '' }} \
+-            --commit-message-file /tmp/commit_message.txt
+-  level1:
+-    needs: [controller]
+-    uses: './.github/workflows/generic.yml'
+-    with:
+-      platforms: ${{ needs.controller.outputs.platforms-level1 }}
+-  level2:
+-    needs: [controller, level1]
+-    uses: './.github/workflows/generic.yml'
+-    with:
+-      platforms: ${{ needs.controller.outputs.platforms-others }}
+diff --git a/.github/workflows/lwjgl.yml b/.github/workflows/lwjgl.yml
+new file mode 100644
+index 0000000..79fd6d4
+--- /dev/null
++++ b/.github/workflows/lwjgl.yml
+@@ -0,0 +1,383 @@
++name: LWJGL Build
++
++on:
++  workflow_dispatch:
++  push:
++    branches:
++      - main
++
++env:
++  AWS_DEFAULT_REGION: us-east-1
++  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
++  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
++  S3_PARAMS: --cache-control "public,must-revalidate,proxy-revalidate,max-age=0"
++  SDL_PARAMS: -DSDL_TEST_LIBRARY=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF -DDSDL_INSTALL=OFF -DCMAKE_BUILD_TYPE=Release
++
++jobs:
++  linux:
++    name: Linux
++    runs-on: ubuntu-latest
++    container:
++      image: almalinux:8
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x64]
++        include:
++          - ARCH: x64
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - name: Install git
++        run: dnf -y install git
++      - name: Clone repository
++        run: git clone --depth 3 https://github.com/${{ github.repository }}.git .
++      - name: Install build dependencies
++        run: |
++          dnf -y install epel-release wget
++          wget https://pkgs.sysadmins.ws/el8/base/x86_64/raven-release-1.0.2-1.el8.noarch.rpm
++          rpm -ivh raven-release-1.0.2-1.el8.noarch.rpm
++          dnf config-manager --set-enabled powertools
++          dnf config-manager --set-enabled raven-extras
++          dnf -y update
++          dnf -y install gcc-toolset-15-gcc python3 cmake awscli
++      - name: Install SDL dependencies
++        run: |
++          dnf -y install \
++            alsa-lib-devel \
++            fribidi-devel \
++            pulseaudio-libs-devel \
++            pipewire-devel \
++            libX11-devel \
++            libXext-devel \
++            libXrandr-devel \
++            libXcursor-devel \
++            libXfixes-devel \
++            libXi-devel \
++            libXScrnSaver-devel \
++            libXtst-devel \
++            dbus-devel \
++            ibus-devel \
++            systemd-devel \
++            libxkbcommon-devel \
++            libglvnd-devel \
++            vulkan-devel \
++            wayland-devel \
++            wayland-protocols-devel \
++            libdrm-devel \
++            mesa-libgbm-devel \
++            libusbx-devel \
++            libdecor-devel \
++            libthai-devel \
++            pipewire-jack-audio-connection-kit-devel \
++            --exclude=rx-harfbuzz --exclude=rx-harfbuzz-devel --exclude=rx-harfbuzz-icu
++      - name: Configure build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          cmake -B build $SDL_PARAMS -DCMAKE_C_FLAGS="-std=c99 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -DLWJGL_XIGPE=1"
++      - name: Build
++        run: |
++          source /opt/rh/gcc-toolset-15/enable || true
++          cmake --build build --parallel
++          strip build/libSDL3.so
++      - name: Upload artifact
++        run: aws s3 cp build/libSDL3.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $(pwd)
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libSDL3.so.git
++          aws s3 cp libSDL3.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  linux-cross:
++    name: Linux Cross
++    runs-on: ${{matrix.RUNNER}}
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [arm32, arm64, ppc64le, riscv64]
++        include:
++          - ARCH: arm32
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: armhf
++            TRIPLET: arm-linux-gnueabihf
++            GCC: 12
++          - ARCH: arm64
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: arm64
++            TRIPLET: aarch64-linux-gnu
++            GCC: 12
++          - ARCH: ppc64le
++            RUNNER: ubuntu-22.04
++            CROSS_ARCH: ppc64el
++            TRIPLET: powerpc64le-linux-gnu
++            GCC: 12
++          - ARCH: riscv64
++            RUNNER: ubuntu-24.04
++            CROSS_ARCH: riscv64
++            TRIPLET: riscv64-linux-gnu
++            GCC: 14
++    defaults:
++      run:
++        shell: bash
++    steps:
++      - name: Install build dependencies
++        run: |
++          sudo apt-mark hold python3
++          sudo apt-get -yq update
++          sudo apt-get -yq install cmake \
++            gcc-${{matrix.GCC}}-${{matrix.TRIPLET}} \
++            libc6-dev-${{matrix.CROSS_ARCH}}-cross
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Prepare cross-compilation for ${{matrix.CROSS_ARCH}}
++        if: matrix.RUNNER == 'ubuntu-22.04'
++        run: |
++          sudo grep 'deb ' /etc/apt/sources.list | sudo tee /etc/apt/sources.list.d/ports.list
++          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
++          sudo sed -i 's#^deb [^ ]\+#deb [arch=${{matrix.CROSS_ARCH}}] https://ports.ubuntu.com/ubuntu-ports/#' /etc/apt/sources.list.d/ports.list
++          sudo dpkg --add-architecture ${{matrix.CROSS_ARCH}}
++          sudo apt-get update
++      - name: Prepare cross-compilation for ${{matrix.CROSS_ARCH}}
++        if: matrix.RUNNER == 'ubuntu-24.04'
++        run: |
++          native="$(dpkg --print-architecture)"
++          . /etc/os-release
++          suite="${VERSION_CODENAME}"
++          keyring="/usr/share/keyrings/ubuntu-archive-keyring.gpg"
++          components="main restricted universe multiverse"
++
++          sudo tee /etc/apt/sources.list.d/ubuntu.sources >/dev/null <<EOF
++          Types: deb
++          URIs: http://archive.ubuntu.com/ubuntu/
++          Suites: ${suite} ${suite}-updates ${suite}-backports
++          Components: ${components}
++          Architectures: ${native}
++          Signed-By: ${keyring}
++          
++          Types: deb
++          URIs: http://security.ubuntu.com/ubuntu/
++          Suites: ${suite}-security
++          Components: ${components}
++          Architectures: ${native}
++          Signed-By: ${keyring}
++          EOF
++
++          sudo tee /etc/apt/sources.list.d/ci-ubuntu-ports.sources >/dev/null <<EOF
++          Types: deb
++          URIs: https://ports.ubuntu.com/ubuntu-ports/
++          Suites: ${suite} ${suite}-updates ${suite}-backports ${suite}-security
++          Components: ${components}
++          Architectures: ${{matrix.CROSS_ARCH}}
++          Signed-By: ${keyring}
++          EOF
++
++          sudo dpkg --add-architecture ${{matrix.CROSS_ARCH}}
++          sudo apt-get update
++      - name: Install dependencies
++        run: |
++          DEBIAN_FRONTEND=noninteractive sudo apt-get -yq install \
++            libasound2-dev:${{matrix.CROSS_ARCH}} \
++            libpulse-dev:${{matrix.CROSS_ARCH}} \
++            libaudio-dev:${{matrix.CROSS_ARCH}} \
++            libfribidi-dev:${{matrix.CROSS_ARCH}} \
++            libjack-dev:${{matrix.CROSS_ARCH}} \
++            libsndio-dev:${{matrix.CROSS_ARCH}} \
++            libusb-1.0-0-dev:${{matrix.CROSS_ARCH}} \
++            libx11-dev:${{matrix.CROSS_ARCH}} \
++            libxext-dev:${{matrix.CROSS_ARCH}} \
++            libxrandr-dev:${{matrix.CROSS_ARCH}} \
++            libxcursor-dev:${{matrix.CROSS_ARCH}} \
++            libxfixes-dev:${{matrix.CROSS_ARCH}} \
++            libxi-dev:${{matrix.CROSS_ARCH}} \
++            libxss-dev:${{matrix.CROSS_ARCH}} \
++            libxtst-dev:${{matrix.CROSS_ARCH}} \
++            libxkbcommon-dev:${{matrix.CROSS_ARCH}} \
++            libdrm-dev:${{matrix.CROSS_ARCH}} \
++            libgbm-dev:${{matrix.CROSS_ARCH}} \
++            libgl1-mesa-dev:${{matrix.CROSS_ARCH}} \
++            libgles2-mesa-dev:${{matrix.CROSS_ARCH}} \
++            libegl1-mesa-dev:${{matrix.CROSS_ARCH}} \
++            libdbus-1-dev:${{matrix.CROSS_ARCH}} \
++            libibus-1.0-dev:${{matrix.CROSS_ARCH}} \
++            libudev-dev:${{matrix.CROSS_ARCH}} \
++            libthai-dev:${{matrix.CROSS_ARCH}} \
++            libpipewire-0.3-dev:${{matrix.CROSS_ARCH}} \
++            libwayland-dev:${{matrix.CROSS_ARCH}} \
++            libdecor-0-dev:${{matrix.CROSS_ARCH}}
++      - name: Configure build
++        run: |
++          export PKG_CONFIG_LIBDIR="/usr/lib/${{matrix.TRIPLET}}/pkgconfig:/usr/share/pkgconfig"
++          CC=${{matrix.TRIPLET}}-gcc-${{matrix.GCC}} cmake -B build \
++            -DCMAKE_C_FLAGS="-std=c99 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0" \
++            $SDL_PARAMS
++      - name: Build
++        run: |
++          cmake --build build --parallel
++          ${{matrix.TRIPLET}}-strip build/libSDL3.so
++      - name: Upload artifact
++        run: aws s3 cp build/libSDL3.so s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $(pwd)
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libSDL3.so.git
++          aws s3 cp libSDL3.so.git s3://lwjgl-build/nightly/linux/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  freebsd-cross:
++    name: FreeBSD Cross
++    runs-on: ubuntu-latest
++    strategy:
++      fail-fast: false
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Start VM
++        uses: cross-platform-actions/action@v1.3.0
++        with:
++          operating_system: freebsd
++          architecture: x86-64
++          version: '14.4'
++          memory: 4G
++          environment_variables: SDL_PARAMS
++      - name: Install build dependencies
++        shell: cpa.sh {0}
++        run: sudo pkg install -y cmake gmake pkgconf
++      - name: Install dependencies
++        shell: cpa.sh {0}
++        run: |
++          sudo pkg install -y \
++            alsa-lib \
++            hidapi \
++            ibus \
++            jackit \
++            libdecor \
++            libthai \
++            fribidi \
++            libglvnd \
++            pulseaudio \
++            libX11 \
++            libXcursor \
++            libXext \
++            libXfixes \
++            libXi \
++            libXinerama \
++            libxkbcommon \
++            libXrandr \
++            libXrender \
++            libXScrnSaver \
++            libXtst \
++            pipewire \
++            sndio \
++            vulkan-headers \
++            vulkan-loader \
++            wayland \
++            wayland-protocols \
++            libXxf86vm \
++            evdev-proto \
++            libinotify \
++            dbus \
++            libudev-devd
++      - name: Configure build
++        shell: cpa.sh {0}
++        run: cmake -B build $SDL_PARAMS -DCMAKE_C_FLAGS="-std=c99 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0" -DSDL_CHECK_REQUIRED_INCLUDES=/usr/local/include" -DSDL_CHECK_REQUIRED_LINK_OPTIONS=-L/usr/local/lib"
++      - name: Build
++        shell: cpa.sh {0}
++        run: |
++          cmake --build build --parallel
++          strip build/libSDL3.so
++      - name: Upload artifact
++        run: aws s3 cp build/libSDL3.so s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git config --global --add safe.directory $PWD
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libSDL3.so.git
++          aws s3 cp libSDL3.so.git s3://lwjgl-build/nightly/freebsd/x64/ ${{env.S3_PARAMS}}
++
++  macos:
++    name: macOS
++    runs-on: macos-latest
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x64, arm64]
++        include:
++          - ARCH: x64
++            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=10.11 -DCMAKE_OSX_ARCHITECTURES=x86_64
++          - ARCH: arm64
++            CMAKE_PARAMS: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES=arm64
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++      - name: Configure build
++        run: cmake -B build $SDL_PARAMS ${{matrix.CMAKE_PARAMS}}
++      - name: Build
++        run: |
++          cmake --build build --parallel
++          strip -u -r build/libSDL3.dylib
++      - name: Upload artifact
++        run: aws s3 cp build/libSDL3.dylib s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%H --skip 1 -n 1 > libSDL3.dylib.git
++          aws s3 cp libSDL3.dylib.git s3://lwjgl-build/nightly/macosx/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
++
++  windows:
++    name: Windows
++    runs-on: windows-2022
++    strategy:
++      fail-fast: false
++      matrix:
++        ARCH: [x86, x64, arm64]
++        include:
++          - ARCH: x86
++            PLATFORM: Win32
++            #VCTOOLS: x86.x64
++          - ARCH: x64
++            PLATFORM: x64
++            #VCTOOLS: x86.x64
++          - ARCH: arm64
++            PLATFORM: ARM64
++            #VCTOOLS: ARM64
++    defaults:
++      run:
++        shell: cmd
++    steps:
++      - uses: actions/checkout@v7
++        with:
++          fetch-depth: 3
++#      - name: Install Visual Studio 2026 Build Tools
++#        shell: pwsh
++#        run: |
++#          choco install cmake
++#          choco install visualstudio2026buildtools --package-parameters "`
++#            --add Microsoft.VisualStudio.Workload.VCTools `
++#            --add Microsoft.VisualStudio.Component.VC.Tools.${{matrix.VCTOOLS}} `
++#            --includeRecommended `
++#            --quiet" `
++#            -y `
++#            --ignore-package-exit-codes=3010
++      - name: 'Build & install libusb'
++        shell: pwsh
++        run: |
++          vcpkg install libusb --triplet ${{ matrix.ARCH }}-windows
++
++          $libusb_incdir = "C:\vcpkg\packages\libusb_${{ matrix.ARCH}}-windows\include\libusb-1.0";
++          $libusb_libdir = "C:\vcpkg\packages\libusb_${{ matrix.ARCH}}-windows\lib";
++
++          echo "root=${libusb_incdir};${libusb_libdir}" >> $env:GITHUB_OUTPUT
++          echo "LibUSB_ROOT=${libusb_incdir};${libusb_libdir}" >> $env:GITHUB_ENV
++      - name: Configure build
++        #-T ClangCL
++        #,version=10.0.26100.0
++        run: cmake -B build -G "Visual Studio 17 2022" -A ${{matrix.PLATFORM}} %SDL_PARAMS% -DCMAKE_MSVC_RUNTIME_LIBRARY="MultiThreaded$<$<CONFIG:Debug>:Debug>"
++      - name: Build
++        run: cmake --build build --parallel --config Release
++      - name: Upload artifact
++        run: aws s3 cp build\Release\SDL3.dll s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/SDL3.dll ${{env.S3_PARAMS}}
++      - name: Upload git revision
++        run: |
++          git log --first-parent --pretty=format:%%H --skip 1 -n 1 > SDL3.dll.git
++          aws s3 cp SDL3.dll.git s3://lwjgl-build/nightly/windows/${{matrix.ARCH}}/ ${{env.S3_PARAMS}}
+\ No newline at end of file
+diff --git a/include/SDL3/SDL_intrin.h b/include/SDL3/SDL_intrin.h
+index a2e9680..166466f 100644
+--- a/include/SDL3/SDL_intrin.h
++++ b/include/SDL3/SDL_intrin.h
+@@ -239,11 +239,6 @@ _m_prefetch(void *__P)
+ #endif
+ 
+ #else
+-/* altivec.h redefining bool causes a number of problems, see bugs 3993 and 4392, so you need to explicitly define SDL_ENABLE_ALTIVEC to have it included. */
+-#if defined(__ALTIVEC__) && defined(SDL_ENABLE_ALTIVEC)
+-#define SDL_ALTIVEC_INTRINSICS 1
+-#include <altivec.h>
+-#endif
+ #ifndef SDL_DISABLE_NEON
+ #  ifdef __ARM_NEON
+ #    define SDL_NEON_INTRINSICS 1
+diff --git a/src/cpuinfo/SDL_cpuinfo.c b/src/cpuinfo/SDL_cpuinfo.c
+index 51bcff3..8444dba 100644
+--- a/src/cpuinfo/SDL_cpuinfo.c
++++ b/src/cpuinfo/SDL_cpuinfo.c
+@@ -357,7 +357,7 @@ static int CPU_haveAltiVec(void)
+     void (*handler)(int sig);
+     handler = signal(SIGILL, illegal_instruction);
+     if (setjmp(jmpbuf) == 0) {
+-        asm volatile("mtspr 256, %0\n\t"
++        __asm__ __volatile__("mtspr 256, %0\n\t"
+                      "vand %%v0, %%v0, %%v0" ::"r"(-1));
+         altivec = 1;
+     }
+diff --git a/src/video/SDL_blit_N.c b/src/video/SDL_blit_N.c
+index 204c1ad..e1c2d20 100644
+--- a/src/video/SDL_blit_N.c
++++ b/src/video/SDL_blit_N.c
+@@ -22,6 +22,12 @@
+ 
+ #ifdef SDL_HAVE_BLIT_N
+ 
++/* altivec.h redefining bool causes a number of problems, see bugs 3993 and 4392, so you need to explicitly define SDL_ENABLE_ALTIVEC to have it included. */
++#if defined(__ALTIVEC__) && defined(SDL_ENABLE_ALTIVEC)
++#define SDL_ALTIVEC_INTRINSICS 1
++#include <altivec.h>
++#endif
++
+ #include "SDL_pixels_c.h"
+ #include "SDL_surface_c.h"
+ #include "SDL_blit_copy.h"
+diff --git a/src/video/x11/SDL_x11xinput2.c b/src/video/x11/SDL_x11xinput2.c
+index a0269e7..965a707 100644
+--- a/src/video/x11/SDL_x11xinput2.c
++++ b/src/video/x11/SDL_x11xinput2.c
+@@ -42,6 +42,36 @@ static bool xinput2_multitouch_supported;
+ #endif
+ #ifdef SDL_VIDEO_DRIVER_X11_XINPUT2_SUPPORTS_GESTURE
+ static bool xinput2_gesture_supported;
++#ifdef LWJGL_XIGPE // LWJGL: AlmaLinux 8 is stuck on libXi-devel 1.7.10
++typedef struct {
++  int           type;         /* GenericEvent */
++  unsigned long serial;       /* # of last request processed by server */
++  Bool          send_event;   /* true if this came from a SendEvent request */
++  Display       *display;     /* Display the event was read from */
++  int           extension;    /* XI extension offset */
++  int           evtype;
++  Time          time;
++  int           deviceid;
++  int           sourceid;
++  int           detail;
++  Window        root;
++  Window        event;
++  Window        child;
++  double        root_x;
++  double        root_y;
++  double        event_x;
++  double        event_y;
++  double        delta_x;
++  double        delta_y;
++  double        delta_unaccel_x;
++  double        delta_unaccel_y;
++  double        scale;
++  double        delta_angle;
++  int           flags;
++  XIModifierState     mods;
++  XIGroupState        group;
++} XIGesturePinchEvent;
++#endif
+ #endif
+ 
+ /* Opcode returned X11_XQueryExtension
+-- 
+2.55.0
+

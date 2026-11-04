@@ -10,6 +10,8 @@ RUN dpkg --add-architecture i386 && apt-get update && DEBIAN_FRONTEND=noninterac
         libxkbcommon-dev:i386 libwayland-dev:i386 \
         libasound2-dev:i386 libpulse-dev:i386 libpipewire-0.3-dev:i386 libjack-jackd2-dev:i386 portaudio19-dev:i386 \
         libdbus-1-dev:i386 \
+        libxss-dev:i386 libxtst-dev:i386 libdecor-0-dev:i386 libudev-dev:i386 \
+        libgl-dev:i386 libglx-dev:i386 libegl-dev:i386 libgles-dev:i386 \
     && rm -rf /var/lib/apt/lists/*
 
 # JDK 25 + Ant for LWJGL's build (Kotlin templates, generator, javac).
