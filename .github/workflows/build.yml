@@ -60,5 +60,5 @@ jobs:
               --title "LWJGL $LWJGL_VERSION linux-x86, build ${{ github.run_number }}" \
               --notes "Built from \`${GITHUB_SHA::7}\` (${GITHUB_REF_NAME}) by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}.
 
-          Patched core jar \`lwjgl-$LWJGL_VERSION.jar\` (32-bit Java 25, see the README): sha1 \`$(sha1sum < $jars/lwjgl-$LWJGL_VERSION.jar | cut -c1-40)\`, size $(stat -c %s $jars/lwjgl-$LWJGL_VERSION.jar)."
+          Patched core jar \`lwjgl-$LWJGL_VERSION.jar\` (32-bit: struct layouts on any Java, callbacks on Java 25; see the README): sha1 \`$(sha1sum < $jars/lwjgl-$LWJGL_VERSION.jar | cut -c1-40)\`, size $(stat -c %s $jars/lwjgl-$LWJGL_VERSION.jar)."
           fi

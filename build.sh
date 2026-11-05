@@ -285,22 +285,33 @@ step_corejar() {
             echo "$sum  $file" | sha256sum -c --quiet -
         fi
     done
-    local classes="$BUILD/corejar"
-    rm -rf "$classes" && mkdir -p "$classes"
-    javac --release 25 -nowarn -cp "$jar:$jspecify" -d "$classes" \
-        "$SRC/lwjgl3/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java"
+    local classes="$BUILD/corejar" core="$SRC/lwjgl3/modules/lwjgl/core"
+    rm -rf "$classes" && mkdir -p "$classes/25" "$classes/8"
+    javac --release 25 -nowarn -cp "$jar:$jspecify" -d "$classes/25" \
+        "${core}25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java"
+    javac --release 8 -nowarn -cp "$jar:$jspecify" -d "$classes/8" \
+        "$core/src/main/java/org/lwjgl/system/Struct.java"
     python3 - "$jar" "$classes" "$dir/lwjgl-$VERSION.jar" <<'PY'
 import os, sys, zipfile
 src, classes, dst = sys.argv[1:]
-prefix = "META-INF/versions/25/org/lwjgl/system/ffm/"
-built = {prefix + f: os.path.join(classes, "org/lwjgl/system/ffm", f)
-         for f in os.listdir(os.path.join(classes, "org/lwjgl/system/ffm"))}
+# (prefix in the jar, javac output, package, class): replaces <prefix><class>.class and <prefix><class>$*.class
+patched = [("META-INF/versions/25/org/lwjgl/system/ffm/", "25", "org/lwjgl/system/ffm", "BCCallUp"),
+           ("org/lwjgl/system/", "8", "org/lwjgl/system", "Struct")]
+built = {}
+for prefix, release, package, _ in patched:
+    folder = os.path.join(classes, release, package)
+    built.update({prefix + f: os.path.join(folder, f) for f in os.listdir(folder)})
+def replaced(name):
+    for prefix, _, _, cls in patched:
+        rest = name[len(prefix):] if name.startswith(prefix) else None
+        if rest is not None and "/" not in rest and (rest == cls + ".class" or rest.startswith(cls + "$")):
+            return True
+    return False
 with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
     for e in zin.infolist():
-        name = e.filename
-        if name.startswith(prefix + "BCCallUp") and name.endswith(".class"):
+        if replaced(e.filename):
             continue
-        zout.writestr(e, zin.read(name))
+        zout.writestr(e, zin.read(e.filename))
     for name, path in sorted(built.items()):
         info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
         info.compress_type = zipfile.ZIP_DEFLATED

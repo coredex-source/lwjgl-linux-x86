@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Coredex <samdhi2323@gmail.com>
+Date: Thu, 5 Nov 2026 22:48:24 +0530
+Subject: [PATCH] Struct: i386 System V alignment of 8-byte members
+
+---
+ .../src/main/java/org/lwjgl/system/Struct.java    | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/modules/lwjgl/core/src/main/java/org/lwjgl/system/Struct.java b/modules/lwjgl/core/src/main/java/org/lwjgl/system/Struct.java
+index 657037c..150a27c 100644
+--- a/modules/lwjgl/core/src/main/java/org/lwjgl/system/Struct.java
++++ b/modules/lwjgl/core/src/main/java/org/lwjgl/system/Struct.java
+@@ -149,6 +149,19 @@ public abstract class Struct<SELF extends Struct<SELF>> extends Pointer.Default
+ 
+     // ---------------- Struct Member Layout ----------------
+ 
++    /**
++     * The i386 System V ABI (32-bit Linux and FreeBSD) aligns 8-byte scalars ({@code long long}, {@code double}) to 4
++     * bytes inside structs; Windows x86 aligns them to 8. Without this, every struct with an 8-byte member that follows
++     * an odd number of 4-byte ones is laid out wrong there: VkDeviceSize and non-dispatchable Vulkan handles, VMA.
++     * Explicit alignment ({@code alignas}) is kept.
++     */
++    private static final boolean ALIGN_8_BYTES_TO_4 = BITS32 && (Platform.get() == Platform.LINUX || Platform.get() == Platform.FREEBSD);
++
++    static int abiAlignment(int alignment) {
++        return ALIGN_8_BYTES_TO_4 && alignment == 8 ? 4 : alignment;
++    }
++
++
+     protected static class Member {
+         final int     size;
+         final int     alignment;
+@@ -158,7 +171,7 @@ public abstract class Struct<SELF extends Struct<SELF>> extends Pointer.Default
+ 
+         Member(int size, int alignment, boolean forcedAlignment) {
+             this.size = size;
+-            this.alignment = alignment;
++            this.alignment = forcedAlignment ? alignment : abiAlignment(alignment);
+             this.forcedAlignment = forcedAlignment;
+         }
+ 
