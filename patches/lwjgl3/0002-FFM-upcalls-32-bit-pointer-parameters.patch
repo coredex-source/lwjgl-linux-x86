@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Coredex <samdhi2323@gmail.com>
+Date: Thu, 05 Nov 2026 20:57:39 +0530
+Subject: [PATCH] FFM upcalls: 32-bit pointer parameters of LWJGL 3 callbacks
+
+LWJGL 3 callback interfaces declare pointer parameters and returns as plain longs, without
+FFMPointer. On 32-bit JVMs BCCallUp then gave them a JAVA_LONG layout, so the upcall stub read
+8 bytes from each 4-byte pointer slot and every later argument was shifted: an
+STBIWriteCallback got context=0xa3369240_00001234 instead of 0x1234, and GLFW callbacks (the
+window pointer comes first) got garbage. The callback's CIF has the real type: when it says
+ffi_type_pointer, treat the long like an FFMPointer one (JAVA_INT, zero-extended to long, and
+truncated back for returns). 64-bit JVMs are unaffected.
+---
+ .../main/java/org/lwjgl/system/ffm/BCCallUp.java   | 26 +++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java b/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java
+index f30637a..95ef075 100644
+--- a/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java
++++ b/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java
+@@ -32,6 +32,10 @@ final class BCCallUp extends BCCall {
+     private final Method      method;
+     private final Parameter[] parameters;
+ 
++    // 32-bit: LWJGL 3 callbacks declare pointers as plain longs, without FFMPointer. Their CIF has the real type.
++    private final boolean[] cifPointer;
++    private final boolean   cifPointerReturn;
++
+     private final int   featureFlags;
+     private final int[] featureFlagOffsets;
+ 
+@@ -65,6 +69,10 @@ final class BCCallUp extends BCCall {
+ 
+         parameters = method.getParameters();
+ 
++        cifPointer = new boolean[parameters.length];
++        cifPointerReturn = BITS32 && cif != null && method.getReturnType() == long.class
++            && !method.isAnnotationPresent(FFMPointer.class) && cif.rtype().type() == FFI_TYPE_POINTER;
++
+         featureFlagOffsets = new int[FF_LAST.ordinal()];
+         binders = new LinkedHashMap<>();
+ 
+@@ -75,6 +83,13 @@ final class BCCallUp extends BCCall {
+         for (var i = 0; i < parameters.length; i++) {
+             var parameter = parameters[i];
+             var type      = parameter.getType();
++            if (type == long.class && !parameter.isAnnotationPresent(FFMPointer.class) && isCifPointer(cif, i)) {
++                // LWJGL 3 interop
++                cifPointer[i] = true;
++                featureFlags |= FF_TYPE_CONVERSION.mask;
++                argLayouts.add(ValueLayout.JAVA_INT);
++                continue;
++            }
+             if (isPointerType(parameter, type)) {
+                 if (BITS32 && type == long.class) {
+                     featureFlags |= FF_TYPE_CONVERSION.mask;
+@@ -130,7 +145,7 @@ final class BCCallUp extends BCCall {
+                     resLayout = memoryLayoutFrom(cif.rtype());
+                     featureFlags |= FF_TYPE_CONVERSION.mask;
+                 }
+-            } else if (BITS32 && type == long.class && method.isAnnotationPresent(FFMPointer.class)) {
++            } else if (BITS32 && type == long.class && (method.isAnnotationPresent(FFMPointer.class) || cifPointerReturn)) {
+                 featureFlags |= FF_TYPE_CONVERSION.mask;
+                 resLayout = ValueLayout.JAVA_INT;
+             } else if (needsBinder(type)) {
+@@ -307,7 +322,7 @@ final class BCCallUp extends BCCall {
+                             if (booleanInt != null && !booleanInt.binary()) {
+                                 cb.ifThenElse(Opcode.IFEQ, CodeBuilder::iconst_0, CodeBuilder::iconst_1);
+                             }
+-                        } else if (BITS32 && type == long.class && parameter.isAnnotationPresent(FFMPointer.class)) {
++                        } else if (BITS32 && type == long.class && (parameter.isAnnotationPresent(FFMPointer.class) || cifPointer[p])) {
+                             // TODO: test
+                             cb.iload(slot);
+                             buildPointer32to64(cb);
+@@ -343,7 +358,7 @@ final class BCCallUp extends BCCall {
+                         var type = method.getReturnType();
+                         if (type != void.class) {
+                             // Return result if non-void, transform if necessary
+-                            if (BITS32 && type == long.class && method.isAnnotationPresent(FFMPointer.class)) {
++                            if (BITS32 && type == long.class && (method.isAnnotationPresent(FFMPointer.class) || cifPointerReturn)) {
+                                 // TODO: test
+                                 buildPointer64to32(cb);
+                             } else if (needsBinder(type)) {
+@@ -425,6 +440,11 @@ final class BCCallUp extends BCCall {
+     }
+ 
+     // LWJGL 3 interop
++    private static boolean isCifPointer(@Nullable FFICIF cif, int index) {
++        return BITS32 && cif != null && index < cif.nargs()
++            && FFIType.create(cif.arg_types().get(index)).type() == FFI_TYPE_POINTER;
++    }
++
+     private static MemoryLayout memoryLayoutFrom(FFIType type) {
+         return switch (type.type()) {
+             case FFI_TYPE_UINT8, FFI_TYPE_SINT8 -> ValueLayout.JAVA_BYTE;
+-- 
+2.0
+

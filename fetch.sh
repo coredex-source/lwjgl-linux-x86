@@ -44,7 +44,7 @@ fetch "$SRC/jemalloc"    https://github.com/LWJGL-CI/jemalloc.git     1972241cd2
 fetch "$SRC/shaderc"     https://github.com/LWJGL-CI/shaderc.git      301b4ede53d59b68bf55f95bb26412d9233c8187 "$PATCHES/shaderc"
 fetch "$SRC/SPIRV-Cross" https://github.com/LWJGL-CI/SPIRV-Cross.git  a0fba56c34a6700f1724bf9b751da5b488a3775c
 else
-fetch "$SRC/lwjgl3"      https://github.com/LWJGL/lwjgl3.git          30fac9b95f99cda97312232be25ba55297bf9951 # (kotlinc fix upstream)
+fetch "$SRC/lwjgl3"      https://github.com/LWJGL/lwjgl3.git          30fac9b95f99cda97312232be25ba55297bf9951 "$PATCHES/lwjgl3" # (kotlinc fix upstream)
 fetch "$SRC/sdl"         https://github.com/LWJGL-CI/SDL.git          147a8ee32dbf9ac02f3794964490687b6bbda1bc "$PATCHES/sdl"
 fetch "$SRC/openal-soft" https://github.com/LWJGL-CI/openal-soft.git  7f9c6de1162b1d4604b9a2f8bcd6c53021566221 "$PATCHES/openal-soft"
 fetch "$SRC/freetype"    https://github.com/LWJGL-CI/freetype.git     0a0221a1347e2f1e07c395263540026e9a0aa7c7 "$PATCHES/freetype"

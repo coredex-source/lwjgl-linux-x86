@@ -48,7 +48,7 @@ jobs:
           # The jars keep one name per release; 3.4.3's are built into out/3.4.3/.
           jars=out
           [[ $LWJGL_VERSION == 3.4.1 ]] || jars=out/$LWJGL_VERSION
-          files=($jars/lwjgl-natives-linux-x86.jar out/lwjgl-$LWJGL_VERSION-linux-x86.tar.gz
+          files=($jars/lwjgl-natives-linux-x86.jar out/lwjgl-$LWJGL_VERSION-linux-x86.tar.gz $jars/lwjgl-$LWJGL_VERSION.jar
                  $jars/lwjgl-natives-linux-x86-i686.jar out/lwjgl-$LWJGL_VERSION-linux-x86-i686.tar.gz
                  $jars/lwjgl-natives-linux-x86-i586.jar out/lwjgl-$LWJGL_VERSION-linux-x86-i586.tar.gz)
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -58,5 +58,7 @@ jobs:
             [[ "$GITHUB_REF" == refs/heads/main ]] || prerelease=(--prerelease)
             gh release create "$TAG" "${files[@]}" "${prerelease[@]}" --target "$GITHUB_SHA" \
               --title "LWJGL $LWJGL_VERSION linux-x86, build ${{ github.run_number }}" \
-              --notes "Built from \`${GITHUB_SHA::7}\` (${GITHUB_REF_NAME}) by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+              --notes "Built from \`${GITHUB_SHA::7}\` (${GITHUB_REF_NAME}) by ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}.
+
+          Patched core jar \`lwjgl-$LWJGL_VERSION.jar\` (32-bit Java 25, see the README): sha1 \`$(sha1sum < $jars/lwjgl-$LWJGL_VERSION.jar | cut -c1-40)\`, size $(stat -c %s $jars/lwjgl-$LWJGL_VERSION.jar)."
           fi

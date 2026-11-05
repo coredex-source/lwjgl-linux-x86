@@ -5,7 +5,7 @@ stopped publishing linux-x86 natives, so on a 32-bit JVM the game dies loading `
 
 | LWJGL | Libraries |
 |-------|-----------|
-| 3.4.1 | lwjgl, lwjgl_opengl, lwjgl_stb, lwjgl_tinyfd, GLFW, OpenAL Soft, FreeType (+ HarfBuzz), jemalloc, shaderc, SPIRV-Cross |
+| 3.4.1 | lwjgl, lwjgl_opengl, lwjgl_stb, lwjgl_tinyfd, lwjgl_vma, GLFW, OpenAL Soft, FreeType (+ HarfBuzz), jemalloc, shaderc, SPIRV-Cross |
 | 3.4.3 | lwjgl, lwjgl_opengl, lwjgl_stb, lwjgl_tinyfd, lwjgl_vma, SDL3, OpenAL Soft, FreeType (+ HarfBuzz), jemalloc, shaderc, SPIRV-Cross (no GLFW: Minecraft 26.3 uses SDL3) |
 
 
@@ -48,11 +48,12 @@ LWJGL_VERSION=3.4.3 ./build.sh
 
 Note: The i586 build compiles GCC from source in `build-x86-i586/toolchain`, with an i586 runtime and no CET, and builds everything with that.
 
-Output goes to `out` (3.4.1) and `out/3.4.3` plus `out/lwjgl-3.4.3-linux-x86*.tar.gz` (3.4.3).
+Output goes to `out` (3.4.1) and `out/3.4.3` plus `out/lwjgl-3.4.3-linux-x86*.tar.gz` (3.4.3). The patched core jar is
+`out/lwjgl-3.4.1.jar` and `out/3.4.3/lwjgl-3.4.3.jar` (`./build.sh corejar` after the `lwjgl` step).
 
 ## Licenses
 
 The natives are under their projects' licenses, copied into `out/licenses/` and the jar's
-`META-INF/licenses/lwjgl-linux-x86/`: LWJGL (BSD-3; for 3.4.3 also VMA, MIT), GLFW or SDL3 (zlib), OpenAL Soft (**LGPL-2.0+**; this repo is its
+`META-INF/licenses/lwjgl-linux-x86/`: LWJGL (BSD-3; also VMA, MIT), GLFW or SDL3 (zlib), OpenAL Soft (**LGPL-2.0+**; this repo is its
 corresponding source), FreeType (FTL), HarfBuzz (MIT), libpng, zlib, jemalloc (BSD-2), shaderc, glslang,
 SPIRV-Tools, SPIRV-Cross (Apache-2.0 / BSD), libffi (MIT).

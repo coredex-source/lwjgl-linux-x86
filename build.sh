@@ -211,10 +211,9 @@ step_libffi() {
 step_lwjgl() {
     [[ -f "$BUILD/libffi.a" ]] || step_libffi
     export LWJGL_BUILD_ARCH=x86
-    local off="" vma=vma modules=("" opengl stb tinyfd)
-    [[ $VERSION == 3.4.3 ]] && vma="" && modules+=(vma)
+    local off="" modules=("" opengl stb tinyfd vma)
     for b in assimp fmod harfbuzz hwloc ktx llvm lmdb lz4 meshoptimizer msdfgen nanovg nfd nuklear odbc opencl \
-             opengles openxr opus par remotery renderdoc rpmalloc sdl spng tinyexr $vma xxhash yoga zstd; do
+             opengles openxr opus par remotery renderdoc rpmalloc sdl spng tinyexr xxhash yoga zstd; do
         off+=" -Dbinding.$b=false"
     done
     cd "$SRC/lwjgl3"
@@ -258,10 +257,8 @@ step_package() {
     cp "$SRC/shaderc/third_party/spirv-tools/LICENSE"   "$lic/spirv-tools.txt"
     cp "$SRC/SPIRV-Cross/LICENSE"                       "$lic/spirv-cross.txt"
     tar -xzOf "$TARBALLS/libffi-$LIBFFI.tar.gz" "libffi-$LIBFFI/LICENSE" > "$lic/libffi.txt"
-    if [[ $VERSION != 3.4.1 ]]; then
-        sed -n '/^\/\/ Copyright/,/^\/\/ THE SOFTWARE/p' "$SRC/lwjgl3/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h" \
-            | sed 's#^// \{0,1\}##' > "$lic/vma.txt"
-    fi
+    sed -n '/^\/\/ Copyright/,/^\/\/ THE SOFTWARE/p' "$SRC/lwjgl3/modules/lwjgl/vma/src/main/c/vk_mem_alloc.h" \
+        | sed 's#^// \{0,1\}##' > "$lic/vma.txt"
     cp /work/README.md "$lic/SOURCES.md"
     rm -rf "$STAGE/META-INF" && mkdir -p "$STAGE/META-INF/licenses/lwjgl-linux-x86" && cp "$lic"/* "$STAGE/META-INF/licenses/lwjgl-linux-x86/"
     local dir=/work/out
@@ -272,11 +269,52 @@ step_package() {
     echo ">>> ${dir#/work/}/lwjgl-natives-linux-x86$SUFFIX.jar, out/lwjgl-$VERSION-linux-x86$SUFFIX.tar.gz"
 }
 
+step_corejar() {
+    local sha dir=/work/out jar="$TARBALLS/lwjgl-$VERSION.jar" jspecify="$TARBALLS/jspecify-1.0.0.jar"
+    case "$VERSION" in
+        3.4.1) sha=9b1c3a3a078c2377219ecb8a2662730b3dece07c10592cf1d12f957286037b69 ;;
+        3.4.3) sha=46eeca5471833c3cf5da3c1da015b41e3bb3eb16dd3da03f366886da10096751 ;;
+    esac
+    [[ $VERSION == 3.4.1 ]] || dir=/work/out/$VERSION
+    local url sum file
+    for url in "https://repo1.maven.org/maven2/org/lwjgl/lwjgl/$VERSION/lwjgl-$VERSION.jar@$sha@$jar" \
+               "https://repo1.maven.org/maven2/org/jspecify/jspecify/1.0.0/jspecify-1.0.0.jar@1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab@$jspecify"; do
+        IFS=@ read -r url sum file <<< "$url"
+        if ! echo "$sum  $file" | sha256sum -c --quiet - >/dev/null 2>&1; then
+            curl -fsSL -o "$file" "$url"
+            echo "$sum  $file" | sha256sum -c --quiet -
+        fi
+    done
+    local classes="$BUILD/corejar"
+    rm -rf "$classes" && mkdir -p "$classes"
+    javac --release 25 -nowarn -cp "$jar:$jspecify" -d "$classes" \
+        "$SRC/lwjgl3/modules/lwjgl/core25/src/main/java/org/lwjgl/system/ffm/BCCallUp.java"
+    python3 - "$jar" "$classes" "$dir/lwjgl-$VERSION.jar" <<'PY'
+import os, sys, zipfile
+src, classes, dst = sys.argv[1:]
+prefix = "META-INF/versions/25/org/lwjgl/system/ffm/"
+built = {prefix + f: os.path.join(classes, "org/lwjgl/system/ffm", f)
+         for f in os.listdir(os.path.join(classes, "org/lwjgl/system/ffm"))}
+with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
+    for e in zin.infolist():
+        name = e.filename
+        if name.startswith(prefix + "BCCallUp") and name.endswith(".class"):
+            continue
+        zout.writestr(e, zin.read(name))
+    for name, path in sorted(built.items()):
+        info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        with open(path, "rb") as f:
+            zout.writestr(info, f.read())
+PY
+    echo ">>> ${dir#/work/}/lwjgl-$VERSION.jar (patched core jar)"
+}
+
 steps=("$@")
 if [[ ${#steps[@]} -eq 0 ]]; then
     case "$VERSION" in
-        3.4.1) steps=(glfw openal freetype jemalloc spvc shaderc lwjgl package) ;;
-        *)     steps=(sdl openal freetype jemalloc spvc shaderc lwjgl package) ;;
+        3.4.1) steps=(glfw openal freetype jemalloc spvc shaderc lwjgl corejar package) ;;
+        *)     steps=(sdl openal freetype jemalloc spvc shaderc lwjgl corejar package) ;;
     esac
 fi
 [[ $FLAVOUR == i586 && ${steps[0]} != toolchain ]] && steps=(toolchain "${steps[@]}")
